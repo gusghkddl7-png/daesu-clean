@@ -1,20 +1,14 @@
-﻿# build
+﻿# dependencies
+node_modules/
+
+# Next.js
 .next/
-dist/
 out/
-.vercel/
 
 # env
 .env
-.env.local
+.env.*
+!.env.example
 
-# backups & large caches
-_backup_detail_filter/
-_backup*/
-_rollback*/
-.patch_backups/
-.rollback_*/
-.backup_checkpoint_*/
-_ckpt_tmp/
-checkpoints/
-*.zip
+# Vercel
+.vercel/

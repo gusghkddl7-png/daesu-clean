@@ -11,7 +11,6 @@ type Notice = {
 
 // 모듈 스코프 메모리 저장소 (개발용)
 let NOTICES: Notice[] = [
-  // 초기 예시 한 건 (원하면 비워도 됨)
   {
     id: "seed-1",
     title: "환영합니다 🎉",
@@ -21,12 +20,19 @@ let NOTICES: Notice[] = [
   },
 ];
 
+// 안전한 비교 함수: pinned 우선(내림차순), 그다음 createdAt 최신순(내림차순)
+function compareNotice(a: Notice, b: Notice) {
+  const pb = b.pinned ? 1 : 0;
+  const pa = a.pinned ? 1 : 0;
+  if (pb !== pa) return pb - pa;
+
+  const cb = typeof b.createdAt === "number" ? b.createdAt : 0;
+  const ca = typeof a.createdAt === "number" ? a.createdAt : 0;
+  return cb - ca;
+}
+
 function sorted(list: Notice[]) {
-  return [...list].sort((a, b) => {
-    // pinned 우선, 그 다음 최신순
-    if (!!b.pinned - +!!a.pinned !== 0) return (!!b.pinned ? 1 : 0) - (!!a.pinned ? 1 : 0);
-    return (b.createdAt || 0) - (a.createdAt || 0);
-  });
+  return [...list].sort(compareNotice);
 }
 
 /** 목록 */
@@ -60,14 +66,14 @@ export async function PATCH(req: Request) {
   try {
     const { id, title, body, pinned } = await req.json();
     if (!id) return new NextResponse("id required", { status: 400 });
-    const idx = NOTICES.findIndex(n => n.id === id);
+    const idx = NOTICES.findIndex((n) => n.id === id);
     if (idx < 0) return new NextResponse("not found", { status: 404 });
 
     const cur = NOTICES[idx];
     const next: Notice = {
       ...cur,
       title: typeof title === "string" ? title.slice(0, 200) : cur.title,
-      body:  typeof body  === "string" ? body.slice(0, 5000)   : cur.body,
+      body: typeof body === "string" ? body.slice(0, 5000) : cur.body,
       pinned: typeof pinned === "boolean" ? pinned : cur.pinned,
       updatedAt: Date.now(),
     };
@@ -84,7 +90,7 @@ export async function DELETE(req: Request) {
   const id = url.searchParams.get("id");
   if (!id) return new NextResponse("id required", { status: 400 });
   const before = NOTICES.length;
-  NOTICES = NOTICES.filter(n => n.id !== id);
+  NOTICES = NOTICES.filter((n) => n.id !== id);
   if (NOTICES.length === before) return new NextResponse("not found", { status: 404 });
   return new NextResponse(null, { status: 204 });
 }
