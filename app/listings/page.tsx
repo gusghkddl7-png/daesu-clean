@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 type Deal = "월세" | "전세" | "매매";
 type Listing = {
   _id?: string; // DB 문서 id
-  id?: string;  // (옛 샘플용, 미사용)
+  id?: string; // (옛 샘플용, 미사용)
 
   createdAt: string;
   agent: string;
@@ -115,18 +115,28 @@ const TABS = [
 ] as const;
 type Tab = "" | (typeof TABS)[number];
 
-// 건물유형 카테고리
-const BT_CATS = [
+// ======================
+// 건물유형 카테고리 (타입 명시)
+// ======================
+type BtCatRow = { label: string; match: string[] };
+const BT_CATS: BtCatRow[] = [
   { label: "아파트", match: ["아파트"] },
   { label: "오피스텔", match: ["오피스텔"] },
   { label: "단독/다가구(상가주택)", match: ["단독", "다가구", "상가주택"] },
   { label: "상가/사무실", match: ["상가", "사무실", "상가/사무실"] },
   { label: "빌라/다세대", match: ["빌라", "다세대"] },
   { label: "재개발/재건축", match: ["재개발", "재건축"] },
-] as const;
-type BtCat = (typeof BT_CATS)[number]["label"];
-const catOf = (bt: string): BtCat | "기타" =>
-  BT_CATS.find((c) => c.match.includes(bt))?.label ?? "기타";
+];
+type BtCat = BtCatRow["label"];
+
+// 부분 문자열도 매칭되도록(예: "상가주택" → 상가/사무실로 분류되지 않게 방지)
+const catOf = (bt: string): BtCat | "기타" => {
+  const s = (bt || "").trim();
+  return (
+    BT_CATS.find((c) => c.match.some((m) => s === m || s.includes(m)))?.label ??
+    "기타"
+  );
+};
 
 export default function ListingsPage() {
   const router = useRouter();
@@ -217,10 +227,7 @@ export default function ListingsPage() {
   useEffect(() => setQS("parkYes", parkYes ? "1" : null), [parkYes]);
   useEffect(() => setQS("petsYes", petsYes ? "1" : null), [petsYes]);
 
-  useEffect(
-    () => setQS("bt", btSel.length ? btSel.join("|") : null),
-    [btSel]
-  );
+  useEffect(() => setQS("bt", btSel.length ? btSel.join("|") : null), [btSel]);
 
   // 탭 프리필터 (요청 사항 반영)
   const tabFilter = (x: Listing) => {
@@ -484,22 +491,22 @@ export default function ListingsPage() {
           <table className="min-w-[1200px] w-full text-sm table-fixed">
             {/* 열 너비 고정 */}
             <colgroup>
-              <col className="w-[110px]" />   {/* 날짜 */}
-              <col className="w-[65px]" />    {/* 담당 */}
-              <col className="w-[80px]" />    {/* 코드번호 */}
-              <col className="w-[80px]" />    {/* 거래유형 */}
-              <col className="w-[110px]" />   {/* 건물유형 */}
-              <col className="w-[140px]" />   {/* 임대료(보/월/관) */}
-              <col className="w-[110px]" />   {/* 세입자 */}
-              <col className="w-[110px]" />   {/* 주소 */}
-              <col className="w-[90px]" />    {/* 전용면적 */}
-              <col className="w-[70px]" />    {/* 방/욕 */}
-              <col className="w-[48px]" />    {/* 엘베 */}
-              <col className="w-[60px]" />    {/* 주차 */}
-              <col className="w-[130px]" />   {/* 임대/임차인 */}
-              <col className="w-[150px]" />   {/* 연락처 */}
-              <col className="w-[70px]" />    {/* 임사자 */}
-              <col className="w-[460px]" />   {/* 비고 */}
+              <col className="w-[110px]" /> {/* 날짜 */}
+              <col className="w-[65px]" /> {/* 담당 */}
+              <col className="w-[80px]" /> {/* 코드번호 */}
+              <col className="w-[80px]" /> {/* 거래유형 */}
+              <col className="w-[110px]" /> {/* 건물유형 */}
+              <col className="w-[140px]" /> {/* 임대료(보/월/관) */}
+              <col className="w-[110px]" /> {/* 세입자 */}
+              <col className="w-[110px]" /> {/* 주소 */}
+              <col className="w-[90px]" /> {/* 전용면적 */}
+              <col className="w-[70px]" /> {/* 방/욕 */}
+              <col className="w-[48px]" /> {/* 엘베 */}
+              <col className="w-[60px]" /> {/* 주차 */}
+              <col className="w-[130px]" /> {/* 임대/임차인 */}
+              <col className="w-[150px]" /> {/* 연락처 */}
+              <col className="w-[70px]" /> {/* 임사자 */}
+              <col className="w-[460px]" /> {/* 비고 */}
             </colgroup>
 
             <thead className="bg-gray-100">
@@ -562,7 +569,9 @@ export default function ListingsPage() {
                   <td className="px-3 py-2">
                     <div className="truncate">{r.areaM2 ? `${r.areaM2.toFixed(1)}㎡` : "-"}</div>
                     {typeof r.areaM2 === "number" && !isNaN(r.areaM2) && (
-                      <div className="text-[11px] text-gray-600">≈ {toPyeong(r.areaM2).toFixed(1)}평</div>
+                      <div className="text-[11px] text-gray-600">
+                        ≈ {toPyeong(r.areaM2).toFixed(1)}평
+                      </div>
                     )}
                   </td>
 
