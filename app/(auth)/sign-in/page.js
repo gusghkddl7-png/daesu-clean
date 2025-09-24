@@ -1,10 +1,5 @@
 "use client";
 
-// ✅ 이 페이지도 캐시 완전 차단
-export const revalidate = 0;
-export const dynamic = "force-dynamic";
-export const fetchCache = "force-no-store";
-
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
