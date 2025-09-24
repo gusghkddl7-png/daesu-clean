@@ -1,4 +1,6 @@
 "use client";
+export const revalidate = 0; // ✅ 로그인 페이지 캐시 비활성화(숫자만 허용)
+
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
