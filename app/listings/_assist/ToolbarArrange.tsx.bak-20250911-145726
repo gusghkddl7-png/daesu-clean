@@ -1,0 +1,91 @@
+﻿"use client";
+import React, { useEffect } from "react";
+
+function norm(t?: string) { return (t || "").replace(/\s+/g, " ").trim(); }
+function findLabel(re: RegExp): HTMLElement | null {
+  return (Array.from(document.querySelectorAll("label")).find(el => re.test(norm(el.textContent || ""))) as HTMLElement) || null;
+}
+function findBtn(re: RegExp): HTMLElement | null {
+  return (Array.from(document.querySelectorAll("a,button")).find(el => re.test(norm((el as HTMLElement).innerText))) as HTMLElement) || null;
+}
+function commonAncestor(a: HTMLElement, b: HTMLElement): HTMLElement | null {
+  const A = new Set<HTMLElement>(); let x: HTMLElement | null = a; let i=0;
+  while (x && i++ < 12) { A.add(x); x = x.parentElement; }
+  let y: HTMLElement | null = b; let j=0;
+  while (y && j++ < 12) { if (A.has(y)) return y; y = y.parentElement; }
+  return null;
+}
+function addInlineButtons(after: HTMLElement) {
+  if (document.getElementById("daesu-inline")) return;
+  const span = document.createElement("span");
+  span.id = "daesu-inline"; span.style.marginLeft = "8px";
+  after.insertAdjacentElement("afterend", span);
+
+  const mk = (label: string, handler: () => void) => {
+    const b = document.createElement("button");
+    b.className = "px-3 py-1 rounded border text-sm";
+    b.textContent = label;
+    b.addEventListener("click", handler);
+    span.appendChild(b);
+  };
+
+  const clearRows = () => {
+    document.querySelectorAll("table tbody tr").forEach(tr => ((tr as HTMLElement).style.display = ""));
+  };
+  const apply = (re: RegExp) => {
+    document.querySelectorAll("table tbody tr").forEach(tr => {
+      const t = norm(tr.textContent || "");
+      (tr as HTMLElement).style.display = re.test(t) ? "" : "none";
+    });
+  };
+  const resetUI = () => {
+    const inp = document.querySelector<HTMLInputElement>('input[placeholder*="검색"],input[placeholder*="주소"],input[placeholder*="메모"]');
+    if (inp) { inp.value = ""; inp.dispatchEvent(new Event("input",{bubbles:true})); inp.dispatchEvent(new Event("change",{bubbles:true})); }
+    const uncheck = (re: RegExp) => {
+      const L = findLabel(re);
+      const cb = L?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+      if (cb && cb.checked) cb.click();
+    };
+    uncheck(/공실만/); uncheck(/거래완료\s*숨기기/);
+  };
+
+  mk("LH/SH", () => { clearRows(); apply(/\b(LH|SH)\b/i); });
+  mk("허그/HF", () => { clearRows(); apply(/\b(HUG|HF|허그)\b/i); });
+  mk("보증보험가능", () => { clearRows(); apply(/(보증보험|보증보험가능|SGI|HUG|HF)/i); });
+  mk("새로고침", () => { clearRows(); resetUI(); });
+}
+
+export default function ToolbarArrange() {
+  useEffect(() => {
+    try {
+      const search = document.querySelector<HTMLInputElement>(
+        'input[placeholder*="검색"],input[placeholder*="주소"],input[placeholder*="메모"]'
+      );
+      const labVac  = findLabel(/공실만/);
+      const labDone = findLabel(/거래완료\s*숨기기/);
+      const addBtn  = findBtn(/매물등록/);
+
+      if (search) addInlineButtons(search);
+
+      // 검색/체크박스/+매물등록의 공통 조상 컨테이너를 flex로 정렬
+      let host: HTMLElement | null = null;
+      if (search && labVac) host = commonAncestor(search, labVac);
+      if (!host && labVac && addBtn) host = commonAncestor(labVac, addBtn);
+      if (!host && search) host = (search.closest("form,div,section,header") as HTMLElement) || null;
+
+      if (host) {
+        host.style.display = "flex";
+        host.style.flexWrap = "wrap";
+        host.style.alignItems = "center";
+        host.style.gap = "8px";
+
+        if (search) (search as HTMLElement).style.order = "0";     // 검색 왼쪽
+        if (labVac)  { labVac.style.order = "2"; labVac.style.marginLeft = "auto"; } // 오른쪽 묶음 시작
+        if (labDone) labDone.style.order = "2";                    // 그 옆
+        if (addBtn)  { addBtn.style.order = "3"; }                 // 맨 오른쪽(+매물등록)
+      }
+    } catch {}
+  }, []);
+
+  return null;
+}

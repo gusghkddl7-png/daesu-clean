@@ -1,0 +1,26 @@
+﻿"use client";
+import { useEffect } from "react";
+
+function T(el: Element|null){ return (el?.textContent||"").replace(/\s+/g," ").trim(); }
+
+export default function ToolbarFlexTweak(){
+  useEffect(()=>{
+    try{
+      // 체크박스 줄/검색줄이 같이 있는 부모를 flex로
+      const search = document.querySelector('input[placeholder*="검색"],input[placeholder*="주소"],input[placeholder*="메모"]') as HTMLElement|null;
+      const addBtn = Array.from(document.querySelectorAll("a,button")).find(el=>/매물등록/.test(T(el))) as HTMLElement|null;
+      const chkVac = Array.from(document.querySelectorAll("label")).find(el=>/공실만/.test(T(el))) as HTMLElement|null;
+      const chkDone= Array.from(document.querySelectorAll("label")).find(el=>/거래완료\s*숨기기/.test(T(el))) as HTMLElement|null;
+
+      const bar = (search?.closest("form,div,section,header") as HTMLElement) || (addBtn?.closest("form,div,section,header") as HTMLElement) || null;
+      if(bar){
+        bar.style.display="flex"; bar.style.flexWrap="wrap"; bar.style.alignItems="center"; bar.style.gap="8px";
+        if(search) search.style.order="0";
+        if(chkVac){ chkVac.style.order="2"; chkVac.style.marginLeft="auto"; }
+        if(chkDone){ chkDone.style.order="2"; }
+        if(addBtn){ addBtn.style.order="3"; }
+      }
+    }catch{}
+  },[]);
+  return null;
+}

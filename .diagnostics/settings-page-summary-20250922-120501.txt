@@ -1,0 +1,13 @@
+﻿== SETTINGS PAGE SUMMARY ==
+File: .\app\settings\page.js
+Hooks: useState x10, useEffect x4, useMemo x2, useRouter x2
+Buttons: 8  | Tables: 0
+
+-- API endpoints --
+  /api/users/approve
+  /api/users/approved
+  /api/users/pending
+
+-- Korean UI texts (hits) --
+  {u.status||"pending"}
+  {u.status || "pending"}

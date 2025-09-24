@@ -1,0 +1,44 @@
+﻿"use client";
+import React from "react";
+
+function txt(el: Element | null) { return (el?.textContent || "").replace(/\s+/g, " "); }
+
+export default function InlineFilters() {
+  const clearRows = () => { document.querySelectorAll("table tbody tr").forEach(tr => ((tr as HTMLElement).style.display = "")); };
+  const apply = (re: RegExp) => {
+    document.querySelectorAll("table tbody tr").forEach(tr => {
+      const t = txt(tr);
+      (tr as HTMLElement).style.display = re.test(t) ? "" : "none";
+    });
+  };
+  const resetControls = () => {
+    const inp = document.querySelector<HTMLInputElement>('input[placeholder*="검색"],input[placeholder*="주소"],input[placeholder*="메모"]');
+    if (inp) { inp.value = ""; inp.dispatchEvent(new Event("input",{bubbles:true})); inp.dispatchEvent(new Event("change",{bubbles:true})); }
+    const uncheck = (re: RegExp) => {
+      const label = Array.from(document.querySelectorAll("label")).find(el => re.test((el.textContent||"").replace(/\s+/g," ")));
+      const cb = label?.querySelector<HTMLInputElement>('input[type="checkbox"]'); if (cb && cb.checked) cb.click();
+    };
+    uncheck(/공실만/); uncheck(/거래완료\s*숨기기/);
+  };
+
+  return (
+    <span className="ml-2 inline-flex items-center gap-2 align-middle">
+      <button className="px-3 py-1 rounded border text-sm" data-inline data-active="0"
+        onClick={(e)=>{const b=e.currentTarget;const act=b.getAttribute("data-active")==="1";
+          document.querySelectorAll<HTMLButtonElement>('[data-inline]').forEach(bb=>bb.setAttribute("data-active","0"));
+          if(act){b.setAttribute("data-active","0");clearRows();}else{b.setAttribute("data-active","1");apply(/\b(LH|SH)\b/i);}
+        }}>LH/SH</button>
+      <button className="px-3 py-1 rounded border text-sm" data-inline data-active="0"
+        onClick={(e)=>{const b=e.currentTarget;const act=b.getAttribute("data-active")==="1";
+          document.querySelectorAll<HTMLButtonButton>('[data-inline]').forEach((bb:any)=>bb.setAttribute("data-active","0"));
+          if(act){b.setAttribute("data-active","0");clearRows();}else{b.setAttribute("data-active","1");apply(/\b(HUG|HF|허그)\b/i);}
+        }}>허그/HF</button>
+      <button className="px-3 py-1 rounded border text-sm" data-inline data-active="0"
+        onClick={(e)=>{const b=e.currentTarget;const act=b.getAttribute("data-active")==="1";
+          document.querySelectorAll<HTMLButtonElement>('[data-inline]').forEach(bb=>bb.setAttribute("data-active","0"));
+          if(act){b.setAttribute("data-active","0");clearRows();}else{b.setAttribute("data-active","1");apply(/(보증보험|보증보험가능|SGI|HUG|HF)/i);}
+        }}>보증보험가능</button>
+      <button className="px-3 py-1 rounded border text-sm" onClick={()=>{clearRows();resetControls();}}>새로고침</button>
+    </span>
+  );
+}

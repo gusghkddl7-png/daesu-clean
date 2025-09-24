@@ -1,0 +1,291 @@
+"use client";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+
+/** \uC694\uC77C */
+const WEEKS = ["\uC77C","\uC6D4","\uD654","\uC218","\uBAA9","\uAE08","\uD1A0"];
+
+/** 2025 \uACF5\uD734\uC77C(\uACE0\uC815 + \uBA85\uC808/\uB300\uCCB4) */
+const HOLIDAYS_2025 = {
+  "2025-01-01":"\uC2E0\uC815",
+  "2025-03-01":"\uC0BC\uC77C\uC808", "2025-03-03":"\uB300\uCCB4\uACF5\uD734\uC77C",
+  "2025-05-05":"\uC5B4\uB9B0\uC774\uB0A0 \u00B7 \uBD09\uC6B8\uCD9C\uC0DD\uC77C", "2025-05-06":"\uB300\uCCB4\uACF5\uD734\uC77C",
+  "2025-06-06":"\uD604\uCDA9\uC77C",
+  "2025-08-15":"\uAD11\uBCF5\uC808",
+  "2025-10-03":"\uAC1C\uCCA0\uC808",
+  "2025-10-09":"\uD55C\uAE00\uB0A0",
+  "2025-12-25":"\uC131\uD0DC\uC808",
+  "2025-01-28":"\uC124\uB0A0 \uC5F0\uD734", "2025-01-29":"\uC124\uB0A0", "2025-01-30":"\uC124\uB0A0 \uC5F0\uD734",
+  "2025-10-05":"\uCD94\uC11D \uC5F0\uD734", "2025-10-06":"\uCD94\uC11D", "2025-10-07":"\uCD94\uC11D \uC5F0\uD734", "2025-10-08":"\uB300\uCCB4\uACF5\uD734\uC77C"
+};
+
+/** \uC2DC\uAC04(\uC624\uC804 09:00 ~ \uC624\uD6C4 20:00, 15\uBD84 \uB2E8\uC704) */
+const timeOptions = () => {
+  const out = [];
+  for (let m=9*60; m<=20*60; m+=15) {
+    const hh = String(Math.floor(m/60)).padStart(2,"0");
+    const mm = String(m%60).padStart(2,"0");
+    out.push(`${hh}:${mm}`);
+  }
+  return out;
+};
+
+const TYPES = [
+  { key: "\uD22C\uC5B4", color: "#111111" },                   // \uD22C\uC5B4
+  { key: "\uAC00\uACC4\uC57D", color: "#2563eb" },            // \uAC00\uACC4\uC57D
+  { key: "\uBCF8\uACC4\uC57D", color: "#e11d48" },            // \uBCF8\uACC4\uC57D
+  { key: "\uC794\uAE08\uBC0F\uC785\uC8FC", color: "#e11d48" } // \uC794\uAE08\uBC0F\uC785\uC8FC
+];
+
+const STAFFS = ["\uAE40\uBD80\uC7A5","\uAE40\uACFC\uC7A5","\uAC15\uC2E4\uC7A5","\uC18C\uC7A5"];
+
+const ymd = (d)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const uid = ()=> Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+
+const loadEvents = ()=>{ try{ return JSON.parse(localStorage.getItem("daesu:events")||"[]"); }catch{ return []; } };
+const saveEvents = (v)=>{ try{ localStorage.setItem("daesu:events", JSON.stringify(v)); }catch{} };
+
+/** \uACE0\uAC1D \uBCC4\uCE6D \uC785\uB825 \uC815\uB9AC: \uD55C\uAE00 \uAC00\uB098\uB77C(\uAC00~\uD7A3) \uBC0F 영/\uC22B/\uACF5\uBC31/.-_() */
+const cleanAlias = (s="") => s
+  .replace(/[^\uAC00-\uD7A3a-zA-Z0-9\s\-\_\.\(\)]/g, "")
+  .replace(/\s+/g, " ")
+  .trim()
+  .slice(0, 20);
+
+export default function SchedulePage(){
+  const router = useRouter();
+
+  // \uD604\uC7AC \uB2EC \uCEE4\uC11C
+  const [cursor, setCursor] = useState(()=>{ const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
+
+  // \uC800\uC7A5\uB41C \uC77C\uC815
+  const [events, setEvents] = useState([]);
+  useEffect(()=>{ setEvents(loadEvents()); },[]);
+
+  // \uBA54\uBAA8 \uC0C1\uD0DC
+  const [modal, setModal] = useState({ open:false, dateStr:"", id:null });
+  const [form, setForm]   = useState({ type:TYPES[0].key, staff:STAFFS[0], time:"09:00", phone:"", alias:"", memo:"", canceled:false });
+
+  const TIMES = useMemo(()=>timeOptions(),[]);
+
+// IME-friendly alias: 조합 중에는 그대로, 조합 종료 시에만 clean
+const [composing, setComposing] = useState(false);
+const onAliasChange = (e) => {
+  const v = e.target.value;
+  setForm(prev => ({ ...prev, alias: composing ? v : cleanAlias(v) }));
+};// \uCE74\uB4DC \uB370\uC774\uC5B4
+  const y = cursor.getFullYear();
+  const m = cursor.getMonth();
+  const first = new Date(y,m,1);
+  const last  = new Date(y,m+1,0);
+  const blanks = first.getDay();
+  const total  = blanks + last.getDate();
+  const cells  = Math.ceil(total/7)*7;
+
+  const days = useMemo(()=>Array.from({length:cells},(_,i)=>{
+    const d = i - blanks + 1;
+    const date = new Date(y,m,d);
+    const key  = ymd(date);
+    const other = d<=0 || d>last.getDate();
+    const list = other ? [] : events
+      .filter(ev=>ev.date===key)
+      .sort((a,b)=> String(a.time||"").localeCompare(String(b.time||"")));
+    const holiday = other ? null : HOLIDAYS_2025[key] || null;
+    return { date, key, other, list, holiday, dow:i%7 };
+  }),[y,m,events,blanks,cells,last]);
+
+  // \uB124\uBE44
+  const move = (delta)=> setCursor(new Date(y,m+delta,1));
+  const today = ()=> { const n=new Date(); setCursor(new Date(n.getFullYear(), n.getMonth(), 1)); };
+  const goBack = ()=> { if (typeof window!=="undefined" && window.history.length>1) window.history.back(); else router.push("/dashboard"); };
+
+  // \uB4F1\uB85D / \uC218\uC815 \uBA54\uBAA8
+  const openNew  = (dateStr)=>{ setModal({open:true,dateStr,id:null}); setForm({ type:TYPES[0].key, staff:STAFFS[0], time:"09:00", phone:"", alias:"", memo:"", canceled:false }); };
+  const openEdit = (ev)=>{ setModal({open:true,dateStr:ev.date,id:ev.id}); setForm({ type:ev.type, staff:ev.staff, time:ev.time, phone:ev.phone||"", alias:ev.alias||"", memo:ev.memo||"", canceled:!!ev.canceled }); };
+
+  const closeModal = ()=> setModal({...modal, open:false});
+
+  const onSave = ()=>{
+    const data = { ...form, alias: cleanAlias(form.alias), phone: String(form.phone||"").replace(/\D/g,"").slice(-4) };
+    if (!modal.dateStr) return;
+    let next = [...events];
+    if (modal.id){
+      next = next.map(e => e.id===modal.id ? { ...e, ...data } : e);
+    } else {
+      next.push({ id: uid(), date: modal.dateStr, ...data });
+    }
+    saveEvents(next);
+    setEvents(next);
+    closeModal();
+  };
+
+  const onDelete = ()=>{
+    if (!modal.id) return;
+    const next = events.filter(e=>e.id!==modal.id);
+    saveEvents(next);
+    setEvents(next);
+    closeModal();
+  };
+
+  // \uD0C0\uC785 \uC0C9
+  const typeColor = (t)=> (TYPES.find(x=>x.key===t)?.color || "#111111");
+
+  return (
+    <main className="wrap" suppressHydrationWarning>
+      {/* \uC0C1\uB2E8 \uBC14 */}
+      <div className="bar">
+        <button type="button" className="backBtn" onClick={goBack}>{"\u2190 \uB4A4\uB85C\uAC00\uAE30"}</button>
+        <div className="navs">
+          <button className="nav" onClick={()=>move(-1)} aria-label="prev">{"\u25C0"}</button>
+          <div className="title">{y} {"\uB144"} {String(m+1).padStart(2,"0")} {"\uC6D4"}</div>
+          <button className="nav" onClick={()=>move(1)} aria-label="next">{"\u25B6"}</button>
+        </div>
+        <button className="today" onClick={today}>{"\uC624\uB298"}</button>
+      </div>
+
+      {/* \uC694\uC77C \uD5E4\uB354 */}
+      <div className="head">
+        {WEEKS.map((w,i)=>(<div key={w} className={"hcell"+(i===0?" sun":"")}>{w}</div>))}
+      </div>
+
+      {/* \uB2EC\uB825 \uADF8\uB9AC\uB4DC */}
+      <div className="grid">
+        {days.map((d,i)=>{
+          const isSun = d.dow===0;
+          const cls = ["cell"]; if(d.other) cls.push("other"); if(isSun || d.holiday) cls.push("holiday");
+          return (
+            <div key={i} className={cls.join(" ")}>
+              <div className="chead">
+                <span className="num">{d.date.getDate()}</span>
+                <button className="add" onClick={()=>openNew(d.key)}>{" + \uB4F1\uB85D"}</button>
+              </div>
+              {d.holiday && <div className="hname">{d.holiday}</div>}
+              <div className="items">
+                {d.list.slice(0,10).map((ev)=>(
+                  <button key={ev.id} className={"item"+(ev.canceled?" isCancel":"")} onClick={()=>openEdit(ev)} title={ev.memo||""}>
+                    {ev.canceled && <span className="cancelBadge">{"\uCDE8\uC18C\uB428"}</span>}
+                    <span className="type" style={{color:typeColor(ev.type)}}>{ev.type}</span>
+                    <span className="sep">{" / "}</span>
+                    <span>{ev.staff}</span>
+                    <span className="sep">{" / "}</span>
+                    <span>{ev.time}</span>
+                    <span className="sep">{" / "}</span>
+                    <span>{String(ev.phone||"").padStart(4,"\u2022")}</span>
+                    <span className="sep">{" / "}</span>
+                    <span>{ev.alias}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* \uB4F1\uB85D/\uC218\uC815 \uBA54\uB274 */}
+      {modal.open && (
+        <div className="overlay" onClick={closeModal}>
+          <div className="panel" onClick={e=>e.stopPropagation()}>
+            <div className="ptitle">{modal.id ? "\uC77C\uC815 \uC218\uC815" : "\uC77C\uC815 \uB4F1\uB85D"} <small>({modal.dateStr})</small></div>
+
+            <label className="row">
+              <span className="lab">{"\uAD6C\uBD84"}</span>
+              <select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}>
+                {TYPES.map(t=><option key={t.key} value={t.key}>{t.key}</option>)}
+              </select>
+            </label>
+
+            <label className="row">
+              <span className="lab">{"\uB2F4\uB2F9\uC790"}</span>
+              <select value={form.staff} onChange={e=>setForm({...form,staff:e.target.value})}>
+                {STAFFS.map(s=><option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+
+            <label className="row">
+              <span className="lab">{"\uC2DC\uAC04"}</span>
+              <select value={form.time} onChange={e=>setForm({...form,time:e.target.value})}>
+                {TIMES.map(t=><option key={t} value={t}>{t}</option>)}
+              </select>
+            </label>
+
+            <label className="row">
+              <span className="lab">{"\uC804\uD654 \uB4B7\uC790\uB9AC(4)"}</span>
+              <input value={form.phone} maxLength={4} inputMode="numeric" pattern="\d{4}"
+                     onChange={e=>setForm({...form,phone:(e.target.value||'').replace(/\D/g,'').slice(-4)})}/>
+            </label>
+
+            <label className="row">
+              <span className="lab">{"\uACE0\uAC1D \uBCC4\uCE6D"}</span>
+              <input value={form.alias}
+        onChange={onAliasChange}
+        onCompositionStart={()=>setComposing(true)}
+        onCompositionEnd={(e)=>{ setComposing(false); onAliasChange(e); }}
+        placeholder="ex) \uBC15\uC528"/>
+            </label>
+
+            <label className="row">
+              <span className="lab">{"\uACE0\uAC1D \uBA54\uBAA8"}</span>
+              <textarea rows={3} value={form.memo} onChange={e=>setForm({...form,memo:e.target.value})}/>
+            </label>
+
+            <label className="cancelRow">
+              <input type="checkbox" checked={form.canceled} onChange={e=>setForm({...form,canceled:e.target.checked})}/>
+              <span>{"\uCDE8\uC18C\uB428"}</span>
+            </label>
+
+            <div className="btns">
+              <button className="btn ghost" onClick={closeModal}>{"\uB2EB\uAE30"}</button>
+              {modal.id && <button className="btn danger" onClick={onDelete}>{"\uC0AD\uC81C"}</button>}
+              <button className="btn primary" onClick={onSave}>{"\uC800\uC7A5"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style jsx>{`
+        .wrap{min-height:100svh;background:linear-gradient(180deg,#fff,#f6f7f8);color:#111;padding:12px}
+        .bar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;margin-bottom:10px}
+        .navs{display:flex;align-items:center;gap:8px;justify-content:center}
+        .title{font-weight:900;font-size:18px;letter-spacing:.3px;min-width:160px;text-align:center}
+        .nav{border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:6px 8px;cursor:pointer}
+        .backBtn{justify-self:start;border:1px solid #111;background:#111;color:#fff;border-radius:999px;padding:8px 14px;font-weight:800;cursor:pointer}
+        .backBtn:hover{filter:brightness(1.06)}
+        .today{justify-self:end;border:1px solid #111;background:#111;color:#fff;border-radius:999px;padding:6px 12px;font-weight:800}
+
+        .head{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}
+        .hcell{padding:6px 8px;border-radius:10px;background:#fff;border:1px solid #e5e7eb;text-align:center;font-weight:800;color:#333}
+        .hcell.sun{color:#e11d48}
+
+        .grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}
+        .cell{min-height:160px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:6px;box-shadow:0 4px 10px rgba(0,0,0,.03)}
+        .cell.other{background:#fbfbfb;color:#9aa0a6}
+        .cell.holiday .num{color:#e11d48}
+        .chead{display:flex;align-items:center;justify-content:space-between}
+        .num{font-weight:700}
+        .add{border:1px solid #d1d5db;background:#fff;border-radius:8px;padding:2px 8px;font-size:12px;cursor:pointer}
+        .add:hover{background:#f3f4f6}
+        .hname{font-size:12px;color:#e11d48}
+        .items{display:flex;flex-direction:column;gap:4px}
+        .item{width:100%;text-align:left;font-size:12.5px;color:#111;background:#f6f7f8;border:1px solid #e5e7eb;border-radius:8px;padding:4px 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .item.isCancel{background:#fff0f1;border-color:#fecdd3;color:#9f1239}
+        .type{font-weight:800}
+        .sep{opacity:.55}
+        .cancelBadge{color:#e11d48;font-weight:800;margin-right:6px}
+
+        .overlay{position:fixed;inset:0;background:rgba(0,0,0,.28);display:grid;place-items:center;padding:16px}
+        .panel{width:min(640px,92vw);background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:16px 16px 14px;box-shadow:0 12px 28px rgba(0,0,0,.2)}
+        .ptitle{font-weight:900;margin-bottom:10px}
+        .row{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:10px;margin:8px 0}
+        .lab{font-size:13px;color:#333}
+        input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;background:#fff;padding:10px 12px;outline:none}
+        textarea{resize:vertical}
+        .cancelRow{display:flex;align-items:center;gap:8px;margin:10px 0;justify-content:flex-start}
+        .btns{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+        .btn{border:1px solid #111;border-radius:10px;padding:8px 12px;font-weight:800;cursor:pointer;background:#fff}
+        .btn.primary{background:#111;color:#fff}
+        .btn.danger{border-color:#b91c1c;color:#b91c1c}
+        .btn.ghost{opacity:.9}
+              .cancelRow span{white-space:nowrap}`}</style>
+    </main>
+  );
+}

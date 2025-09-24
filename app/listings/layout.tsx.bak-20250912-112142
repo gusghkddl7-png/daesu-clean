@@ -1,0 +1,39 @@
+﻿import Head from "next/head";
+import ToolbarFix from "./_assist/ToolbarFix";
+/**
+ * 서버 컴포넌트(클라이언트 선언 없음)로 유지:
+ *  - <Head> 안의 <style>/<script> 가 초기 문서에 바로 들어가서 첫 페인트 전에 실행됨.
+ *  - 여기서는 위치 조작 없이 "초기 숨김 → 두 프레임 후 표시"만 수행.
+ */
+export default function ListingsLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <ToolbarFix /><Head>
+        {/* 초기 숨김: 첫 페인트 차단 */}
+        <style dangerouslySetInnerHTML={{__html: `
+          html.daesu-hide { opacity: 0 !important; transition: none !important; }
+        `}} />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{
+              // 문서 파싱 시점에 즉시 실행되어 첫 페인트 전에 숨김 적용
+              document.documentElement.classList.add('daesu-hide');
+              // 혹시 스타일이 늦게 온 경우를 대비해 인라인으로도 한 번 더
+              document.documentElement.style.opacity = '0';
+              document.documentElement.style.transition = 'none';
+            }catch(e){}`
+          }}
+        />
+      </Head>
+
+      {/* 두 프레임 뒤 표시 (깜빡임 제거) */}
+      {children}
+    </>
+  );
+}
+
+
+
+
+
+
