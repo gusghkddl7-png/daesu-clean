@@ -1,20 +1,20 @@
-﻿# build & deps
-node_modules/
+﻿# build
 .next/
 dist/
 out/
 .vercel/
 
-# local env
+# env
 .env
 .env.local
 
-# local backups/caches
-.favorites/
-.checkpoints/
-
-# logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# backups & large caches
+_backup_detail_filter/
+_backup*/
+_rollback*/
+.patch_backups/
+.rollback_*/
+.backup_checkpoint_*/
+_ckpt_tmp/
+checkpoints/
+*.zip
