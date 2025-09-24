@@ -1,0 +1,5 @@
+﻿id: 010
+created: 20250916-151010
+source: C:\Users\대수\Downloads\daesu-clean
+excludes: node_modules, .next, .turbo, .checkpoints, .favorites, dist, build, coverage, pnpm-store, .git\objects
+git_head: ref: refs/heads/master

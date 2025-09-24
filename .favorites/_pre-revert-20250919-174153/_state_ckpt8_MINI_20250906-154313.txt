@@ -1,0 +1,15 @@
+﻿## CHECKPOINT-8 MINI REPORT
+Generated: 2025-09-06 15:43:13 +09:00
+PSVersion: 5.1.26100.4768
+Root: C:\Users\대수\Downloads\daesu-clean
+appDir: C:\Users\대수\Downloads\daesu-clean\app
+
+## RUNTIME
+node: v22.18.0
+npm: (not found)
+
+## SIGN-IN DUPLICATE CHECK
+(auth)/sign-in: False
+plain /sign-in: False
+
+## ROUTES (page.tsx)

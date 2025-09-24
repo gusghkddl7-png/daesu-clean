@@ -1,0 +1,27 @@
+﻿@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 표 기본 라인 */
+table { border-collapse: separate; border-spacing: 0; }
+th, td { border-bottom: 1px solid #e5e7eb; }
+
+/* 공통 입력/버튼 스타일 - Tailwind 컴포넌트 레이어 */
+@layer components {
+  .input { @apply w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-300; }
+  .btn { @apply border rounded-lg px-3 py-2; }
+  .btn-primary { @apply rounded-lg px-3 py-2 text-white bg-blue-600; }
+}
+
+html { scroll-behavior: auto !important; }
+    
+/* --- Scroll isolation --- */
+html, body { height: 100%; overflow: hidden; }
+#app-scroll { height: 100%; overflow-y: auto; overscroll-behavior-y: contain; }
+html { scroll-behavior: auto !important; }
+
+/* Tab 이동 시 포커스가 눈에 잘 보이도록 */
+:where(input, textarea, select, button, a, [tabindex]):focus-visible {
+  outline: 2px solid #2563eb; /* blue-600 */
+  outline-offset: 0;
+}

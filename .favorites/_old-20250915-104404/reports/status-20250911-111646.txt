@@ -1,0 +1,57 @@
+﻿## DAESU INTERNAL SITE STATUS
+Generated: 2025-09-11 11:16:46
+Root: C:\Users\대수\Downloads\daesu-clean
+appDir: C:\Users\대수\Downloads\daesu-clean\app
+
+## RUNTIME
+node: v22.18.0
+npm : 10.9.3
+next: 14.2.5
+
+## PORT STATUS
+listening :3200 -> PID 3164 (powershell)
+
+## DIRECTORY & FILES
+appDir exists: True
+components dir: False
+public dir    : False
+
+## ROUTES (page.*)
+count: 14
+- /(auth)/forgot-id/page.js
+- /(auth)/forgot-password/page.js
+- /(auth)/sign-in/page.js
+- /(auth)/sign-up/page.js
+- /billing/page.js
+- /clients/page.js
+- /contracts/page.js
+- /dashboard/page.js
+- /listings/page.tsx
+- /payroll/page.js
+- /schedule/page.js
+- /settings/page.js
+- /urgent/page.tsx
+- //page.js
+
+## DUPLICATE ROUTES (same folder has multiple page.*)
+
+## SIGN-IN DUPLICATE CHECK
+(auth)/sign-in dir : True
+/sign-in dir      : False
+duplicate?          : False
+
+## KEY FILES
+- app\listings\page.tsx | True
+- app\dashboard\page.tsx | False
+- app\(auth)\sign-in\page.tsx | False
+- components\dashboard\QuickTiles.tsx | False
+- components\TopBar.tsx | False
+
+## ENV FILES
+- .env.local | exists: False | MONGODB_URI: False
+- .env.production.local | exists: False | MONGODB_URI: False
+
+## GIT
+branch: HEAD
+uncommitted files: 8186
+

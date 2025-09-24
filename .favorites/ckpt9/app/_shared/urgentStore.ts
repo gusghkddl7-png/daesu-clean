@@ -1,0 +1,11 @@
+﻿"use client";
+export type UrgentRow = { id:string; anchorId:string; moveIn:string; days:number; rowHTML:string; };
+export type UrgentState = { [id:string]: { closed?:boolean } };
+const KEY_ROWS="urgent:rows", KEY_STATE="urgent:state", KEY_THEAD="urgent:thead";
+export const listRows=()=>{ try{return JSON.parse(localStorage.getItem(KEY_ROWS)||"[]")}catch{return[]} };
+export const saveRows=(v:UrgentRow[])=>{ try{const s=JSON.stringify(v);localStorage.setItem(KEY_ROWS,s);window.dispatchEvent(new StorageEvent("storage",{key:KEY_ROWS,newValue:s} as any))}catch{} };
+export const getState=()=>{ try{return JSON.parse(localStorage.getItem(KEY_STATE)||"{}")}catch{return{}} };
+export const setState=(st:UrgentState)=>{ try{const s=JSON.stringify(st);localStorage.setItem(KEY_STATE,s);window.dispatchEvent(new StorageEvent("storage",{key:KEY_STATE,newValue:s} as any))}catch{} };
+export const toggleClosed=(id:string)=>{ const st=getState(); st[id]={...(st[id]||{}),closed:!st[id]?.closed}; setState(st) };
+export const getThead=()=>{ try{return localStorage.getItem(KEY_THEAD)}catch{return null} };
+export const setThead=(h:string)=>{ try{localStorage.setItem(KEY_THEAD,h);window.dispatchEvent(new StorageEvent("storage",{key:KEY_THEAD,newValue:h} as any))}catch{} };

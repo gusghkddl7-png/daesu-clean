@@ -1,0 +1,1029 @@
+"use client";
+
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+
+/** ===== 타입 ===== */
+type Stage = "가계약" | "본계약" | "중도금" | "잔금및입주";
+const STAGES: Stage[] = ["가계약", "본계약", "중도금", "잔금및입주"];
+const DEFAULT_STAGE: Stage = "잔금및입주";
+
+type Deal = "월세" | "전세" | "매매";
+type Bldg =
+  | "단독/다가구"
+  | "다세대/빌라"
+  | "아파트"
+  | "오피스텔"
+  | "상가/사무실"
+  | "재개발/재건축";
+type OfficeUsage = "주거용" | "상업용";
+
+type Party = {
+  dueStage: Stage;        // 기본 잔금및입주, 사용자 수정 가능
+  expect: string;         // 받을금액(만원) — 보통 '포함'으로 입력
+  received: string;       // 실제받은 합계(만원) = 현금+계좌
+  vatIncluded: boolean;   // '부가세 포함' 체크
+  receivedDate: string;
+  receivedCash?: string;
+  receivedBank?: string;
+};
+
+type Billing = {
+  _id?: string;
+  createdAt: string;
+  agent: string;
+  buildingType?: Bldg;
+  dealType?: Deal;
+  officeUsage?: OfficeUsage;
+  address?: string;
+  depositMan?: string; // 매매가 or 보증금 (만원)
+  rentMan?: string;    // 월세 (만원)
+  datePrelim?: string;   // 가계약
+  dateSign?: string;     // 본계약
+  dateInterim?: string;  // 중도금
+  dateClosing?: string;  // 잔금/입주
+  landlord: Party;
+  tenant: Party;
+  memo?: string;
+
+  /** 성함/연락처 */
+  landlordName?: string;
+  landlordPhone?: string;
+  tenantName?: string;
+  tenantPhone?: string;
+
+  /** ✅ 상태 플래그 */
+  paidDone?: boolean;       // 입금 완료
+  receiptIssued?: boolean;  // 영수증 발급
+};
+
+/** ===== 컬럼 ===== */
+const COL_W = {
+  prelim: 80,   // (생성일 ->) 가계약일
+  agent: 50,
+  address: 90,
+  stages: 200,
+  landlord: 150,
+  tenant: 150,
+  fee: 90,
+  memo: 460,
+} as const;
+const ROW_H = 60;
+const CLAMP = "whitespace-nowrap overflow-hidden text-ellipsis";
+
+/** ===== 숫자/포맷 ===== */
+function cleanUpTo2(v: string) {
+  let s = (v ?? "").toString().replace(/[^0-9.]/g, "");
+  const idx = s.indexOf(".");
+  if (idx === -1) return s.replace(/^0+(?=\d)/, "") || "0";
+  const head = (s.slice(0, idx).replace(/^0+(?=\d)/, "") || "0").replace(/\./g, "");
+  const tail = s.slice(idx + 1).replace(/\./g, "").slice(0, 2);
+  return head + (tail.length ? "." + tail : ".");
+}
+const num = (v: string) => {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : 0;
+};
+const fmtMan2 = (n: number) =>
+  n.toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function fmtManSmart(n: number) {
+  const isInt = Math.abs(n - Math.round(n)) < 1e-9;
+  return n.toLocaleString("ko-KR", {
+    minimumFractionDigits: isInt ? 0 : 2,
+    maximumFractionDigits: isInt ? 0 : 2,
+  });
+}
+const asPlain = (n: number) => {
+  const s = n.toFixed(2);
+  return s.endsWith(".00") ? String(Math.round(n)) : s.replace(/\.?0$/, "");
+};
+const fmtDate10 = (iso?: string) => {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? "-" : d.toISOString().slice(0, 10);
+};
+
+/** ===== VAT ===== */
+function deriveVat(amountMan: number, included: boolean) {
+  if (amountMan <= 0) return { supply: 0, vat: 0, total: 0 };
+  if (included) {
+    const supply = +(amountMan / 1.1).toFixed(2);
+    const vat = +(amountMan - supply).toFixed(2);
+    return { supply, vat, total: amountMan };
+  } else {
+    const vat = +(amountMan * 0.1).toFixed(2);
+    const total = +(amountMan + vat).toFixed(2);
+    return { supply: amountMan, vat, total };
+  }
+}
+
+/** ===== 환산/보수 ===== */
+function leaseBase(depositMan: number, rentMan: number) {
+  const base100 = depositMan + rentMan * 100;
+  const base = base100 < 5000 ? depositMan + rentMan * 70 : base100;
+  return +base.toFixed(2);
+}
+function computeBrokerage(
+  building: Bldg | undefined,
+  deal: Deal | undefined,
+  depositMan: number,
+  rentMan: number,
+  officeUsage?: OfficeUsage
+) {
+  if (!building || !deal) return { base: 0, fee: 0, rule: "—" };
+
+  if (building === "상가/사무실") {
+    const base = deal === "매매" ? depositMan : leaseBase(depositMan, rentMan);
+    const fee = +(base * 0.009).toFixed(2);
+    return { base, fee, rule: "상가 0.9‰ (상한없음)" };
+  }
+
+  if (building === "오피스텔") {
+    if (deal === "매매") {
+      const base = depositMan;
+      const rate = officeUsage === "상업용" ? 0.009 : 0.005;
+      const fee = +(base * rate).toFixed(2);
+      return {
+        base, fee,
+        rule: `오피스텔(${officeUsage ?? "주거용"}) ${officeUsage === "상업용" ? "0.9‰" : "0.5‰"} (상한없음)`,
+      };
+    } else {
+      const base = leaseBase(depositMan, rentMan);
+      const rate = officeUsage === "상업용" ? 0.009 : 0.004;
+      const fee = +(base * rate).toFixed(2);
+      return {
+        base, fee,
+        rule: `오피스텔(${officeUsage ?? "주거용"}) ${officeUsage === "상업용" ? "0.9‰" : "0.4‰"} (상한없음)`,
+      };
+    }
+  }
+
+  if (deal !== "매매") {
+    const base = leaseBase(depositMan, rentMan);
+    const B5K = 5000, B1OK = 10000, B6OK = 60000, B12OK = 120000, B15OK = 150000;
+    let rate = 0.003, cap: number | null = null, band = "";
+    if (base < B5K) { rate = 0.005; cap = 20; band = "<5천만"; }
+    else if (base < B1OK) { rate = 0.004; cap = 30; band = "5천만~1억"; }
+    else if (base < B6OK) { rate = 0.003; band = "1억~6억"; }
+    else if (base < B12OK) { rate = 0.004; band = "6억~12억"; }
+    else if (base < B15OK) { rate = 0.005; band = "12억~15억"; }
+    else { rate = 0.006; band = "15억~"; }
+    let fee = +(base * rate).toFixed(2);
+    if (cap !== null) fee = Math.min(fee, cap);
+    const capTxt = cap !== null ? `, 상한 ${cap.toFixed(2)}만원` : "";
+    return { base, fee, rule: `주택(월세) ${band} ${Math.round(rate * 1000) / 10}%o${capTxt}` };
+  }
+
+  const base = depositMan;
+  const B5K = 5000, B2OK = 20000, B9OK = 90000, B12OK = 120000, B15OK = 150000;
+  let rate = 0.004, cap: number | null = null, band = "";
+  if (base < B5K) { rate = 0.006; cap = 25; band = "<5천만"; }
+  else if (base < B2OK) { rate = 0.005; cap = 80; band = "5천만~2억"; }
+  else if (base < B9OK) { rate = 0.004; band = "이억~구억"; }
+  else if (base < B12OK) { rate = 0.005; band = "구억~십이억"; }
+  else if (base < B15OK) { rate = 0.006; band = "십이억~십오억"; }
+  else { rate = 0.007; band = "십오억~"; }
+  let fee = +(base * rate).toFixed(2);
+  if (cap !== null) fee = Math.min(fee, cap);
+  const capTxt = cap !== null ? `, 상한 ${cap.toFixed(2)}만원` : "";
+  return { base, fee, rule: `주택(매매) ${Math.round(rate * 1000) / 10}%o ${band}${capTxt}` };
+}
+
+/** 해당 날짜가 현재 선택한 month(YYYY-MM)에 속하는지 */
+function isInMonth(dateStr?: string, month?: string) {
+  if (!dateStr || !month) return false;
+  const [yy, mm] = month.split("-").map((s) => parseInt(s, 10));
+  const d = new Date(dateStr);
+  return !isNaN(d.getTime()) && d.getFullYear() === yy && d.getMonth() + 1 === mm;
+}
+
+export default function BillingPage() {
+  const router = useRouter();
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "";
+
+  const [items, setItems] = useState<Billing[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // 모달(등록/수정)
+  const [open, setOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+
+  // 상단 기본(왼쪽 1/3)
+  const [agent, setAgent] = useState("");
+  const [address, setAddress] = useState("");
+  const [depositMan, setDepositMan] = useState("0");
+  const [rentMan, setRentMan] = useState("0");
+
+  // 건물/거래유형
+  const [buildingType, setBuildingType] = useState<Bldg | "">("");
+  const [dealType, setDealType] = useState<Deal | "">("");
+  const [officeUsage, setOfficeUsage] = useState<OfficeUsage>("주거용");
+
+  // 날짜
+  const [datePrelim, setDatePrelim] = useState("");
+  const [dateSign, setDateSign] = useState("");
+  const [dateInterim, setDateInterim] = useState("");
+  const [dateClosing, setDateClosing] = useState("");
+
+  // 당사자(금액/시점)
+  const [land, setLand] = useState<Party>({
+    dueStage: DEFAULT_STAGE,
+    expect: "0",
+    received: "0",
+    vatIncluded: true,
+    receivedDate: "",
+    receivedCash: "0",
+    receivedBank: "0",
+  });
+  const [ten, setTen] = useState<Party>({
+    dueStage: DEFAULT_STAGE,
+    expect: "0",
+    received: "0",
+    vatIncluded: true,
+    receivedDate: "",
+    receivedCash: "0",
+    receivedBank: "0",
+  });
+
+  // 성함/연락처
+  const [landlordName, setLandlordName] = useState("");
+  const [landlordPhone, setLandlordPhone] = useState("");
+  const [tenantName, setTenantName] = useState("");
+  const [tenantPhone, setTenantPhone] = useState("");
+
+  // ✅ 상태 플래그 UI 상태
+  const [paidDone, setPaidDone] = useState(false);
+  const [receiptIssued, setReceiptIssued] = useState(false);
+
+  const [memo, setMemo] = useState("");
+
+  // 초기 로드
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`${baseUrl}/api/billing`, { cache: "no-store" });
+        const arr = (await res.json()) as Billing[];
+        if (!alive) return;
+        arr.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setItems(arr);
+      } finally {
+        setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [baseUrl]);
+
+  // 잔금/입주 입력 시 수령일 자동복사
+  useEffect(() => {
+    if (dateClosing) {
+      setLand((s) => ({ ...s, receivedDate: dateClosing }));
+      setTen((s) => ({ ...s, receivedDate: dateClosing }));
+    }
+  }, [dateClosing]);
+
+  // 중개보수 자동 계산
+  const calc = useMemo(() => {
+    const dep = num(depositMan);
+    const rent = num(rentMan);
+    return computeBrokerage(
+      (buildingType || undefined) as Bldg | undefined,
+      (dealType || undefined) as Deal | undefined,
+      dep,
+      rent,
+      officeUsage
+    );
+  }, [buildingType, dealType, depositMan, rentMan, officeUsage]);
+
+  // 받을금액 자동 제안(포함금액). 사용자가 값을 넣었으면 덮어쓰지 않음
+  const lastAuto = useRef<number>(0);
+  useEffect(() => {
+    const supply = calc.fee;
+    const included = deriveVat(supply, false).total;
+    const landTouched = num(land.expect) !== lastAuto.current && num(land.expect) !== 0;
+    const tenTouched  = num(ten.expect)  !== lastAuto.current && num(ten.expect)  !== 0;
+    if (!landTouched) setLand((s) => ({ ...s, expect: asPlain(included) }));
+    if (!tenTouched)  setTen((s)  => ({ ...s, expect: asPlain(included) }));
+    lastAuto.current = included;
+  }, [calc.fee]); // eslint-disable-line
+
+  /** ===== 합계(전체) ===== */
+  const totals = useMemo(() => {
+    let expSupply=0, expVat=0, expTotal=0;
+    let recSupply=0, recVat=0, recTotal=0;
+
+    for (const it of items) {
+      if (it.landlord) {
+        const d = deriveVat(num(it.landlord.expect ?? "0"), true);
+        expSupply += d.supply; expVat += d.vat; expTotal += d.total;
+      }
+      if (it.tenant) {
+        const d = deriveVat(num(it.tenant.expect ?? "0"), true);
+        expSupply += d.supply; expVat += d.vat; expTotal += d.total;
+      }
+      if (it.landlord) {
+        const d = deriveVat(num(it.landlord.received ?? "0"), !!it.landlord.vatIncluded);
+        recSupply += d.supply; recVat += d.vat; recTotal += d.total;
+      }
+      if (it.tenant) {
+        const d = deriveVat(num(it.tenant.received ?? "0"), !!it.tenant.vatIncluded);
+        recSupply += d.supply; recVat += d.vat; recTotal += d.total;
+      }
+    }
+    return { expSupply, expVat, expTotal, recSupply, recVat, recTotal };
+  }, [items]);
+
+  // 월별 매출 카드 — 잔금/입주 날짜 기준 집계
+  const [month, setMonth] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2, "0")}`;
+  });
+  const monthStats = useMemo(() => {
+    if (!month) return { cnt: 0, supply: 0, vat: 0, total: 0 };
+
+    // 1) 계약건수: 가계약일 기준
+    const cnt = items.filter((it) => isInMonth(it.datePrelim, month)).length;
+
+    // 2) 금액 집계: 잔금/입주일 기준
+    const inMonthItems = items.filter((it) => isInMonth(it.dateClosing, month));
+
+    let supply = 0, vat = 0, total = 0;
+    for (const it of inMonthItems) {
+      for (const p of [it.landlord, it.tenant]) {
+        if (!p) continue;
+        const d = deriveVat(num(p.received ?? "0"), !!p.vatIncluded);
+        supply += d.supply;
+        vat += d.vat;
+        total += d.total;
+      }
+    }
+
+    return {
+      cnt,
+      supply: +supply.toFixed(2),
+      vat: +vat.toFixed(2),
+      total: +total.toFixed(2),
+    };
+  }, [items, month]);
+
+  /** ===== 리스트: 가계약일 기준으로 월 필터(유지) ===== */
+  const displayedItems = useMemo(() => {
+    return items.filter((it) => isInMonth(it.datePrelim, month));
+  }, [items, month]);
+
+  /** ===== 입력 초기화 ===== */
+  const resetInputs = () => {
+    setAgent("");
+    setAddress("");
+    setDepositMan("0");
+    setRentMan("0");
+    setBuildingType("");
+    setDealType("");
+    setOfficeUsage("주거용");
+    setDatePrelim("");
+    setDateSign("");
+    setDateInterim("");
+    setDateClosing("");
+    setLand({
+      dueStage: DEFAULT_STAGE,
+      expect: "0",
+      received: "0",
+      vatIncluded: true,
+      receivedDate: "",
+      receivedCash: "0",
+      receivedBank: "0",
+    });
+    setTen({
+      dueStage: DEFAULT_STAGE,
+      expect: "0",
+      received: "0",
+      vatIncluded: true,
+      receivedDate: "",
+      receivedCash: "0",
+      receivedBank: "0",
+    });
+    setLandlordName(""); setLandlordPhone("");
+    setTenantName(""); setTenantPhone("");
+    setPaidDone(false);
+    setReceiptIssued(false);
+    setMemo("");
+    lastAuto.current = 0;
+  };
+
+  /** ===== 수정용 값 채우기 ===== */
+  const loadFromItem = (it: Billing) => {
+    setAgent(it.agent ?? "");
+    setBuildingType((it.buildingType ?? "") as Bldg | "");
+    setDealType((it.dealType ?? "") as Deal | "");
+    setOfficeUsage((it.officeUsage ?? "주거용") as OfficeUsage);
+    setAddress(it.address ?? "");
+    setDepositMan(it.depositMan ?? "0");
+    setRentMan(it.rentMan ?? "0");
+    setDatePrelim(it.datePrelim ?? "");
+    setDateSign(it.dateSign ?? "");
+    setDateInterim(it.dateInterim ?? "");
+    setDateClosing(it.dateClosing ?? "");
+    setLand({
+      dueStage: it.landlord?.dueStage ?? DEFAULT_STAGE,
+      expect: it.landlord?.expect ?? "0",
+      received: it.landlord?.received ?? "0",
+      vatIncluded: !!it.landlord?.vatIncluded,
+      receivedDate: it.landlord?.receivedDate ?? "",
+      receivedCash: it.landlord?.receivedCash ?? "0",
+      receivedBank: it.landlord?.receivedBank ?? "0",
+    });
+    setTen({
+      dueStage: it.tenant?.dueStage ?? DEFAULT_STAGE,
+      expect: it.tenant?.expect ?? "0",
+      received: it.tenant?.received ?? "0",
+      vatIncluded: !!it.tenant?.vatIncluded,
+      receivedDate: it.tenant?.receivedDate ?? "",
+      receivedCash: it.tenant?.receivedCash ?? "0",
+      receivedBank: it.tenant?.receivedBank ?? "0",
+    });
+    setLandlordName(it.landlordName ?? ""); setLandlordPhone(it.landlordPhone ?? "");
+    setTenantName(it.tenantName ?? ""); setTenantPhone(it.tenantPhone ?? "");
+    setPaidDone(!!it.paidDone);
+    setReceiptIssued(!!it.receiptIssued);
+    setMemo(it.memo ?? "");
+    lastAuto.current = 0;
+  };
+
+  /** ===== 등록/수정 저장 ===== */
+  async function handleSubmit() {
+    if (!agent.trim()) return alert("담당자를 입력하세요.");
+
+    const landSum = num(land.receivedCash ?? "0") + num(land.receivedBank ?? "0");
+    const tenSum  = num(ten.receivedCash ?? "0") + num(ten.receivedBank ?? "0");
+
+    const body: Billing = {
+      createdAt: editId
+        ? (items.find(i => i._id === editId)?.createdAt ?? new Date().toISOString())
+        : new Date().toISOString(),
+      agent: agent.trim(),
+      buildingType: (buildingType || undefined) as Bldg | undefined,
+      dealType: (dealType || undefined) as Deal | undefined,
+      officeUsage: buildingType === "오피스텔" ? (officeUsage as OfficeUsage) : undefined,
+      address: address.trim() || undefined,
+      depositMan: cleanUpTo2(depositMan),
+      rentMan: cleanUpTo2(rentMan),
+      datePrelim,
+      dateSign,
+      dateInterim,
+      dateClosing,
+      landlord: {
+        ...land,
+        dueStage: land.dueStage,
+        expect: cleanUpTo2(land.expect),
+        received: asPlain(landSum),
+        receivedCash: cleanUpTo2(land.receivedCash ?? "0"),
+        receivedBank: cleanUpTo2(land.receivedBank ?? "0"),
+        vatIncluded: land.vatIncluded,
+      },
+      tenant: {
+        ...ten,
+        dueStage: ten.dueStage,
+        expect: cleanUpTo2(ten.expect),
+        received: asPlain(tenSum),
+        receivedCash: cleanUpTo2(ten.receivedCash ?? "0"),
+        receivedBank: cleanUpTo2(ten.receivedBank ?? "0"),
+        vatIncluded: ten.vatIncluded,
+      },
+      memo: memo.trim() || undefined,
+
+      landlordName: landlordName.trim() || undefined,
+      landlordPhone: landlordPhone.trim() || undefined,
+      tenantName: tenantName.trim() || undefined,
+      tenantPhone: tenantPhone.trim() || undefined,
+
+      // ✅ 상태 플래그 저장
+      paidDone,
+      receiptIssued,
+    };
+
+    const base = process.env.NEXT_PUBLIC_BASE_URL || "";
+    const url = editId ? `${base}/api/billing/${editId}` : `${base}/api/billing`;
+    const method = editId ? "PUT" : "POST";
+
+    const res = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      alert(`저장 실패: ${res.status} ${t || ""}`.trim());
+      return;
+    }
+    const saved = (await res.json()) as Billing;
+    if (editId) setItems((s) => s.map((x) => (x._id === saved._id ? saved : x)));
+    else setItems((s) => [saved, ...s]);
+
+    setOpen(false);
+    setEditId(null);
+    resetInputs();
+  }
+
+  /** 🗑 삭제 */
+  async function handleDelete() {
+    if (!editId) return;
+    const ok = confirm("정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.");
+    if (!ok) return;
+
+    const url = `${baseUrl}/api/billing/${editId}`;
+    const res = await fetch(url, { method: "DELETE" });
+
+    if (!res.ok) {
+      const t = await res.text();
+      alert(`삭제 실패: ${res.status} ${t || ""}`.trim());
+      return;
+    }
+
+    setItems((s) => s.filter((x) => x._id !== editId));
+    setOpen(false);
+    setEditId(null);
+    resetInputs();
+  }
+
+  /** 메모 2줄 요약 */
+  const briefMemo = (m?: string) => {
+    const s = (m ?? "-").replace(/\n/g, "");
+    const wrapped = s.replace(/(.{45})/g, "$1\n").split("\n");
+    const first = wrapped[0] ?? "";
+    const secondRaw = (wrapped[1] ?? "");
+    const needEllipsis = s.length > (first.length + secondRaw.length);
+    const second = secondRaw ? (secondRaw.slice(0, 45) + (needEllipsis ? "..." : "")) : "";
+    return (first + (second ? "\n" + second : "")).trim();
+  };
+
+  return (
+    <main className="w-full max-w-none px-2 md:px-4 py-5">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between mb-4">
+        <button
+          className="px-3 py-1.5 border rounded-lg hover:bg-gray-50"
+          onClick={() => router.push("/dashboard")}
+        >
+          ← 대시보드
+        </button>
+        <h1 className="text-2xl font-bold">결제/청구</h1>
+        <button
+          className="px-3 py-1.5 border rounded-lg bg-blue-600 text-white hover:opacity-90"
+          onClick={() => { setEditId(null); resetInputs(); setOpen(true); }}
+        >
+          + 등록
+        </button>
+      </div>
+
+      {/* 합계 & 월필터 */}
+      <div className="mb-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+        {/* (1) 미수 합계 */}
+        <div className="rounded-xl border bg-white p-4 text-sm">
+          <div className="font-semibold text-gray-700 mb-2 whitespace-nowrap">미수 합계(만원)</div>
+          <div className="grid grid-cols-3 text-center">
+            <div>공급가<br /><span className="text-xl font-bold">{fmtManSmart(totals.expSupply)}</span></div>
+            <div>부가세<br /><span className="text-xl font-bold">{fmtManSmart(totals.expVat)}</span></div>
+            <div>합계<br /><span className="text-xl font-bold">{fmtManSmart(totals.expTotal)}</span></div>
+          </div>
+        </div>
+
+        {/* (2) 입금 합계 */}
+        <div className="rounded-xl border bg-white p-4 text-sm">
+          <div className="font-semibold text-gray-700 mb-2 whitespace-nowrap">입금 합계(만원)</div>
+          <div className="grid grid-cols-3 text-center">
+            <div>공급가<br /><span className="text-xl font-bold">{fmtManSmart(totals.recSupply)}</span></div>
+            <div>부가세<br /><span className="text-xl font-bold">{fmtManSmart(totals.recVat)}</span></div>
+            <div>합계<br /><span className="text-xl font-bold">{fmtManSmart(totals.recTotal)}</span></div>
+          </div>
+        </div>
+
+        {/* (3) 월 선택 + 해당월 매출/건수 */}
+        <div className="rounded-xl border bg-white p-4 text-sm">
+          <div className="flex flex-wrap items-center gap-3 justify-between mb-2">
+            <label className="inline-flex items-center gap-2 whitespace-nowrap">
+              <span className="text-gray-600">월 선택</span>
+              <input
+                type="month"
+                className="border rounded px-2 h-9 text-sm"
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+              />
+            </label>
+            <div className="text-[12px] text-gray-600 whitespace-nowrap">
+              계약건수: {monthStats.cnt}건
+            </div>
+          </div>
+          <div className="grid grid-cols-3 text-center">
+            <div>공급가<br /><span className="text-xl font-bold">{fmtManSmart(monthStats.supply)}</span></div>
+            <div>부가세<br /><span className="text-xl font-bold">{fmtManSmart(monthStats.vat)}</span></div>
+            <div>합계<br /><span className="text-xl font-bold">{fmtManSmart(monthStats.total)}</span></div>
+          </div>
+        </div>
+      </div>
+
+      {/* 표 */}
+      <div className="border-y">
+        <div className="overflow-auto">
+          <table className="min-w-[1300px] w-full text-sm table-fixed">
+            <colgroup>
+              <col style={{ width: `${COL_W.prelim}px` }} />
+              <col style={{ width: `${COL_W.agent}px` }} />
+              <col style={{ width: `${COL_W.address}px` }} />
+              <col style={{ width: `${COL_W.stages}px` }} />
+              <col style={{ width: `${COL_W.landlord}px` }} />
+              <col style={{ width: `${COL_W.tenant}px` }} />
+              <col style={{ width: `${COL_W.fee}px` }} />
+              <col style={{ width: `${COL_W.memo}px` }} />
+            </colgroup>
+            <thead className="bg-gray-100 select-none">
+              <tr className="text-left" style={{ height: ROW_H }}>
+                <th className="px-3 py-2">가계약일</th>
+                <th className="px-3 py-2">담당</th>
+                <th className="px-3 py-2">주소</th>
+                <th className="px-3 py-2">계약단계 날짜</th>
+                <th className="px-3 py-2">임대인(중개보수)</th>
+                <th className="px-3 py-2">임차인(중개보수)</th>
+                <th className="px-3 py-2">중개보수</th>
+                <th className="px-3 py-2">메모</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr>
+                  <td colSpan={8} className="px-3 py-6 text-center text-gray-500">불러오는 중…</td>
+                </tr>
+              )}
+              {!loading && displayedItems.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-3 py-10 text-center text-gray-500">해당 월 가계약 건이 없습니다.</td>
+                </tr>
+              )}
+              {displayedItems.map((it, idx) => {
+                // (가계약 제외) 본/중/잔만 표기
+                const stageText = [
+                  it.dateSign ? `본 ${it.dateSign}` : "",
+                  it.dateInterim ? `중 ${it.dateInterim}` : "",
+                  it.dateClosing ? `잔/입 ${it.dateClosing}` : "",
+                ].filter(Boolean).join(" / ");
+
+                // 금액
+                const lExp = num(it.landlord?.expect ?? "0");
+                const tExp = num(it.tenant?.expect ?? "0");
+                const lDerE = deriveVat(lExp, true);
+                const tDerE = deriveVat(tExp, true);
+
+                // 메인 한 줄 문구: 이름(금액)
+                const landLabel = (it.landlordName || "").trim() || "임대인";
+                const tenantLabel = (it.tenantName || "").trim() || "임차인";
+                const landMain = `${landLabel}(${fmtMan2(lExp)})`;
+                const tenMain  = `${tenantLabel}(${fmtMan2(tExp)})`;
+
+                // 부가세/공급가 보조
+                const landSub = `→ 공급:${fmtMan2(lDerE.supply)} / 부가세:${fmtMan2(lDerE.vat)}`;
+                const tenSub  = `→ 공급:${fmtMan2(tDerE.supply)} / 부가세:${fmtMan2(tDerE.vat)}`;
+
+                const feeIncluded = fmtMan2(lExp + tExp);
+
+                // ✅ 완료 표시용 배경
+                const isCompleted = !!it.paidDone && !!it.receiptIssued;
+
+                return (
+                  <tr
+                    key={it._id ?? idx}
+                    className={`border-t align-middle cursor-pointer ${isCompleted ? "bg-green-50" : ""} hover:bg-gray-50`}
+                    style={{ height: ROW_H }}
+                    onClick={() => { if (it._id) { setEditId(it._id); loadFromItem(it); setOpen(true); } }}
+                    title="클릭하면 수정창이 열립니다"
+                  >
+                    <td className={`px-3 py-2 ${CLAMP}`}>{fmtDate10(it.datePrelim)}</td>
+                    <td className={`px-3 py-2 ${CLAMP}`}>{it.agent}</td>
+                    <td className={`px-3 py-2 ${CLAMP}`} title={it.address ?? "-"}>{it.address ?? "-"}</td>
+                    <td className={`px-3 py-2 ${CLAMP}`} title={stageText}>{stageText || "-"}</td>
+
+                    <td className="px-3 py-2">
+                      <div className={CLAMP} title={landMain}>{landMain}</div>
+                      <div className="text-[11px] text-gray-600 whitespace-nowrap overflow-hidden text-ellipsis" title={landSub}>
+                        {landSub}
+                      </div>
+                    </td>
+
+                    <td className="px-3 py-2">
+                      <div className={CLAMP} title={tenMain}>{tenMain}</div>
+                      <div className="text-[11px] text-gray-600 whitespace-nowrap overflow-hidden text-ellipsis" title={tenSub}>
+                        {tenSub}
+                      </div>
+                    </td>
+
+                    <td className={`px-3 py-2 ${CLAMP}`}>{feeIncluded}</td>
+                    <td className="px-3 py-2 whitespace-pre-line" title={it.memo ?? "-"}>{briefMemo(it.memo)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ===== 등록/수정 모달 ===== */}
+      {open && (
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" onClick={() => { setOpen(false); setEditId(null); }}>
+          <div className="bg-white w-[1100px] max-w-[100%] max-h-[92vh] rounded-2xl shadow-lg overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b flex items-center justify-between">
+              <h2 className="text-lg font-semibold">{editId ? "청구 수정" : "청구 등록"}</h2>
+              <button className="px-2 py-1 border rounded-lg" onClick={() => { setOpen(false); setEditId(null); }}>닫기</button>
+            </div>
+
+            {/* === 폼 === */}
+            <div className="p-5 space-y-5">
+              {/* (1) 건물/임대유형 */}
+              <section className="rounded-xl border bg-gray-50 p-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <div className="text-xs font-medium text-gray-600 mb-1">건물유형</div>
+                    <select value={buildingType} onChange={(e) => setBuildingType(e.target.value as Bldg | "")} className="border rounded px-2 h-10 text-sm w-full">
+                      <option value="">선택</option>
+                      <option>단독/다가구</option>
+                      <option>다세대/빌라</option>
+                      <option>아파트</option>
+                      <option>오피스텔</option>
+                      <option>상가/사무실</option>
+                      <option>재개발/재건축</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-gray-600 mb-1">임대유형</div>
+                    <select value={dealType} onChange={(e) => setDealType(e.target.value as Deal | "")} className="border rounded px-2 h-10 text-sm w-full">
+                      <option value="">선택</option>
+                      <option>월세</option>
+                      <option>전세</option>
+                      <option>매매</option>
+                    </select>
+                  </div>
+                  <div className="flex items-end">
+                    <div className="text-[12px] text-gray-600">
+                      {buildingType && dealType
+                        ? `기준가: ${dealType === "매매" ? "매매가" : "환산가"} ${fmtMan2(calc.base)} 만원 / 중개보수(부가세 제외): ${fmtMan2(calc.fee)} 만원`
+                        : "유형 선택 시 자동 계산"}
+                      <div className="text-[11px] text-gray-500">{calc.rule}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {buildingType === "오피스텔" && (
+                  <div className="mt-3">
+                    <div className="text-xs font-medium text-gray-600 mb-1">오피스텔 용도</div>
+                    <select value={officeUsage} onChange={(e) => setOfficeUsage(e.target.value as OfficeUsage)} className="border rounded px-2 h-10 text-sm w-full max-w-[240px]">
+                      <option>주거용</option>
+                      <option>상업용</option>
+                    </select>
+                  </div>
+                )}
+              </section>
+
+              {/* (2) 기본정보 + 성함/연락처 */}
+              <section className="rounded-xl border bg-gray-50 p-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* 왼쪽 */}
+                  <div className="space-y-3">
+                    <div className="max-w-[260px]">
+                      <div className="text-xs font-medium text-gray-600 mb-1">담당자 *</div>
+                      <input value={agent} onChange={(e) => setAgent(e.target.value)} className="border rounded px-3 h-10 text-sm w-full" />
+                    </div>
+                    <div className="max-w-[260px]">
+                      <div className="text-xs font-medium text-gray-600 mb-1">주소</div>
+                      <input value={address} onChange={(e) => setAddress(e.target.value)} className="border rounded px-3 h-10 text-sm w-full" placeholder="예:천호동 166-82" />
+                    </div>
+                    <div className="max-w-[260px]">
+                      <div className="text-xs font-medium text-gray-600 mb-1">{dealType === "매매" ? "매매가(만원)" : "보증금(만원)"}</div>
+                      <input value={depositMan} onChange={(e) => setDepositMan(cleanUpTo2(e.target.value))} className="border rounded px-3 h-10 text-sm w-full" />
+                    </div>
+                    <div className="max-w-[260px]">
+                      <div className="text-xs font-medium text-gray-600 mb-1">{dealType === "매매" ? "월세(사용안함)" : "월세(만원)"}</div>
+                      <input value={rentMan} onChange={(e) => setRentMan(cleanUpTo2(e.target.value))} className="border rounded px-3 h-10 text-sm w-full" disabled={dealType === "매매"} />
+                    </div>
+                  </div>
+
+                  {/* 중간: 임대인 */}
+                  <div className="space-y-3">
+                    <div className="text-sm font-semibold text-gray-700">임대인 정보</div>
+                    <div>
+                      <div className="text-xs font-medium text-gray-600 mb-1">성함</div>
+                      <input value={landlordName} onChange={(e) => setLandlordName(e.target.value)} className="border rounded px-3 h-10 text-sm w-full" placeholder="예: 홍길동" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-medium text-gray-600 mb-1">연락처</div>
+                      <input value={landlordPhone} onChange={(e) => setLandlordPhone(e.target.value)} className="border rounded px-3 h-10 text-sm w-full" placeholder="예: 010-1234-5678" />
+                    </div>
+                  </div>
+
+                  {/* 오른쪽: 임차인 */}
+                  <div className="space-y-3">
+                    <div className="text-sm font-semibold text-gray-700">임차인 정보</div>
+                    <div>
+                      <div className="text-xs font-medium text-gray-600 mb-1">성함</div>
+                      <input value={tenantName} onChange={(e) => setTenantName(e.target.value)} className="border rounded px-3 h-10 text-sm w-full" placeholder="예: 김철수" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-medium text-gray-600 mb-1">연락처</div>
+                      <input value={tenantPhone} onChange={(e) => setTenantPhone(e.target.value)} className="border rounded px-3 h-10 text-sm w-full" placeholder="예: 010-9876-5432" />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* (3) 날짜 */}
+              <section className="rounded-xl border bg-gray-50 p-4">
+                <div className="text-sm font-semibold text-gray-700 mb-3">계약단계 날짜</div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 mb-1 block">가계약</label>
+                    <input type="date" value={datePrelim} onChange={(e) => setDatePrelim(e.target.value)} className="border rounded px-3 h-10 text-sm w-full" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 mb-1 block">본계약</label>
+                    <input type="date" value={dateSign} onChange={(e) => setDateSign(e.target.value)} className="border rounded px-3 h-10 text-sm w-full" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 mb-1 block">중도금</label>
+                    <input type="date" value={dateInterim} onChange={(e) => setDateInterim(e.target.value)} className="border rounded px-3 h-10 text-sm w-full" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 mb-1 block">잔금/입주</label>
+                    <input type="date" value={dateClosing} onChange={(e) => setDateClosing(e.target.value)} className="border rounded px-3 h-10 text-sm w-full" title="변경 시 임대/임차 수령일에 복사됩니다." />
+                  </div>
+                </div>
+              </section>
+
+              {/* (4) 임대인/임차인 금액/시점 */}
+              <section className="rounded-xl border bg-gray-50 p-4">
+                <div className="grid grid-cols-1 gap-6">
+                  {/* 임대인 */}
+                  <div>
+                    <div className="text-sm font-semibold text-gray-700 mb-3">임대인 청구</div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 mb-1 block">수취시점</label>
+                          <select
+                            value={land.dueStage}
+                            onChange={(e) => setLand({ ...land, dueStage: e.target.value as Stage })}
+                            className="border rounded px-2 h-10 text-sm w-full"
+                          >
+                            {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <label className="text-xs font-medium text-gray-600">부가세</label>
+                          <label className="inline-flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={land.vatIncluded}
+                              onChange={(e) => setLand({ ...land, vatIncluded: e.target.checked })}
+                            />
+                            <span className="text-sm">포함</span>
+                          </label>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 mb-1 block">수령일(선택)</label>
+                          <input type="date" value={land.receivedDate} onChange={(e) => setLand({ ...land, receivedDate: e.target.value })} className="border rounded px-3 h-10 text-sm w-full" />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 mb-1 block">중개보수(부가세포함) — 받을금액(만원)</label>
+                        <input
+                          value={land.expect}
+                          onChange={(e) => setLand({ ...land, expect: cleanUpTo2(e.target.value) })}
+                          className="border rounded px-3 h-10 text-sm w-full"
+                        />
+                        <div className="text-[11px] text-gray-600 mt-1">{`공급가:${fmtMan2(deriveVat(num(land.expect), true).supply)} / 부가세:${fmtMan2(deriveVat(num(land.expect), true).vat)} / 합계:${fmtMan2(num(land.expect))} (만원)`}</div>
+                        <div className="text-[11px] text-blue-600 mt-1">자동(포함): {fmtMan2(deriveVat(calc.fee, false).total)} 만원</div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 mb-1 block">중개보수(부가세제외) — 자동(만원)</label>
+                        <input value={asPlain(calc.fee)} readOnly className="border rounded px-3 h-10 text-sm w-full bg-gray-50" title="중개보수 산정 공급가(부가세 제외)" />
+                        <div className="text-[11px] text-gray-500 mt-1">{calc.rule}</div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 mb-1 block">실제받은금액(만원)</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input placeholder="현금" value={land.receivedCash ?? "0"} onChange={(e) => setLand({ ...land, receivedCash: cleanUpTo2(e.target.value) })} className="border rounded px-3 h-10 text-sm w-full" />
+                          <input placeholder="계좌이체" value={land.receivedBank ?? "0"} onChange={(e) => setLand({ ...land, receivedBank: cleanUpTo2(e.target.value) })} className="border rounded px-3 h-10 text-sm w-full" />
+                        </div>
+                        <div className="text-[11px] text-gray-600 mt-1">
+                          합계:{fmtMan2(num(land.receivedCash ?? "0") + num(land.receivedBank ?? "0"))} (만원)
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-dashed border-gray-300 my-1" />
+
+                  {/* 임차인 */}
+                  <div>
+                    <div className="text-sm font-semibold text-gray-700 mb-3">임차인 청구</div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 mb-1 block">수취시점</label>
+                          <select
+                            value={ten.dueStage}
+                            onChange={(e) => setTen({ ...ten, dueStage: e.target.value as Stage })}
+                            className="border rounded px-2 h-10 text-sm w-full"
+                          >
+                            {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <label className="text-xs font-medium text-gray-600">부가세</label>
+                          <label className="inline-flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={ten.vatIncluded}
+                              onChange={(e) => setTen({ ...ten, vatIncluded: e.target.checked })}
+                            />
+                            <span className="text-sm">포함</span>
+                          </label>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 mb-1 block">수령일(선택)</label>
+                          <input type="date" value={ten.receivedDate} onChange={(e) => setTen({ ...ten, receivedDate: e.target.value })} className="border rounded px-3 h-10 text-sm w-full" />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 mb-1 block">중개보수(부가세포함) — 받을금액(만원)</label>
+                        <input
+                          value={ten.expect}
+                          onChange={(e) => setTen({ ...ten, expect: cleanUpTo2(e.target.value) })}
+                          className="border rounded px-3 h-10 text-sm w-full"
+                        />
+                        <div className="text-[11px] text-gray-600 mt-1">{`공급가:${fmtMan2(deriveVat(num(ten.expect), true).supply)} / 부가세:${fmtMan2(deriveVat(num(ten.expect), true).vat)} / 합계:${fmtMan2(num(ten.expect))} (만원)`}</div>
+                        <div className="text-[11px] text-blue-600 mt-1">자동(포함): {fmtMan2(deriveVat(calc.fee, false).total)} 만원</div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 mb-1 block">중개보수(부가세제외) — 자동(만원)</label>
+                        <input value={asPlain(calc.fee)} readOnly className="border rounded px-3 h-10 text-sm w-full bg-gray-50" />
+                        <div className="text-[11px] text-gray-500 mt-1">{calc.rule}</div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 mb-1 block">실제받은금액(만원)</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input placeholder="현금" value={ten.receivedCash ?? "0"} onChange={(e) => setTen({ ...ten, receivedCash: cleanUpTo2(e.target.value) })} className="border rounded px-3 h-10 text-sm w-full" />
+                          <input placeholder="계좌이체" value={ten.receivedBank ?? "0"} onChange={(e) => setTen({ ...ten, receivedBank: cleanUpTo2(e.target.value) })} className="border rounded px-3 h-10 text-sm w-full" />
+                        </div>
+                        <div className="text-[11px] text-gray-600 mt-1">
+                          합계:{fmtMan2(num(ten.receivedCash ?? "0") + num(ten.receivedBank ?? "0"))} (만원)
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            {/* 푸터: 초기화 / 체크 / 삭제 / 취소 / 저장 */}
+            <div className="px-5 py-3 border-t flex items-center justify-between gap-3 flex-wrap">
+              <button className="px-3 py-1.5 border rounded-lg" onClick={resetInputs}>초기화</button>
+
+              <div className="flex items-center gap-4">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={paidDone}
+                    onChange={(e) => setPaidDone(e.target.checked)}
+                  />
+                  <span className="text-sm">입금 완료</span>
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={receiptIssued}
+                    onChange={(e) => setReceiptIssued(e.target.checked)}
+                  />
+                  <span className="text-sm">영수증 발급</span>
+                </label>
+              </div>
+
+              <div className="flex gap-2">
+                {editId && (
+                  <button
+                    className="px-3 py-1.5 border rounded-lg text-red-600 border-red-300 hover:bg-red-50"
+                    onClick={handleDelete}
+                    title="현재 청구를 완전히 삭제합니다"
+                  >
+                    삭제
+                  </button>
+                )}
+                <button className="px-3 py-1.5 border rounded-lg" onClick={() => { setOpen(false); setEditId(null); }}>취소</button>
+                <button className="px-3 py-1.5 border rounded-lg bg-blue-600 text-white" onClick={handleSubmit}>
+                  {editId ? "수정" : "등록"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}

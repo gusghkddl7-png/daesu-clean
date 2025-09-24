@@ -1,0 +1,68 @@
+﻿@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========= CSS Variables ========= */
+:root {
+  /* colors (light) */
+  --bg: #ffffff;
+  --fg: #111111;
+  --muted: #6b7280;         /* gray-500 */
+  --card: #ffffff;
+  --card-contrast: #fafafa;
+  --border: #e5e7eb;        /* gray-200 */
+  --border-strong: #d1d5db; /* gray-300 */
+  --chip-bg: #ffffff;
+  --accent: #111827;        /* gray-900 */
+  /* layout scale */
+  --gap: 12px;
+  --pad: 12px;
+  --radius: 12px;
+}
+
+[data-theme="dark"] {
+  --bg: #0b0c0e;
+  --fg: #e7e7ea;
+  --muted: #9ca3af;         /* gray-400 */
+  --card: #111214;
+  --card-contrast: #1a1b1e;
+  --border: #24262a;
+  --border-strong: #3a3d42;
+  --chip-bg: #15161a;
+  --accent: #2563eb;        /* blue-600 */
+}
+
+/* Density (컴팩트 모드에서 간격 살짝 줄임) */
+[data-density="compact"] {
+  --gap: 8px;
+  --pad: 8px;
+  --radius: 10px;
+}
+
+/* ========= Global resets / helpers ========= */
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); }
+
+/* (선택) 앱 스크롤 격리 */
+#app-scroll { height: 100%; overflow-y: auto; overscroll-behavior-y: contain; }
+
+/* 표 기본 라인 */
+table { border-collapse: separate; border-spacing: 0; }
+th, td { border-bottom: 1px solid var(--border); }
+
+/* 포커스 가시성 */
+:where(input, textarea, select, button, a, [tabindex]):focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 0;
+}
+
+/* Tailwind components layer 확장 */
+@layer components {
+  .input { @apply w-full rounded-lg px-3 py-2 outline-none; border: 1px solid var(--border); background: var(--card); color: var(--fg); }
+  .btn { @apply rounded-lg px-3 py-2 cursor-pointer; border: 1px solid var(--border); background: var(--card); color: var(--fg); }
+  .btn:hover { background: var(--card-contrast); }
+  .btn-primary { @apply rounded-lg px-3 py-2 text-white; background: #2563eb; border-color: transparent; }
+}
+
+/* 스무스 스크롤은 페이지 내부에서만 */
+html { scroll-behavior: auto !important; }

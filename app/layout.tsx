@@ -1,4 +1,5 @@
-﻿import "./globals.css";
+﻿import { Suspense } from "react";
+import "./globals.css";
 import NoScrollJank from "./_client/NoScrollJank";
 import Script from "next/script";
 
@@ -50,9 +51,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <NoScrollJank />
         {/* 윈도우 대신 이 컨테이너만 스크롤 */}
         <div id="app-scroll" className="min-h-screen max-h-screen">
-          {children}
+          <Suspense fallback={null}>{children}</Suspense>
         </div>
       </body>
     </html>
   );
 }
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;

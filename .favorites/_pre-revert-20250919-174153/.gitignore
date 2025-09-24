@@ -1,0 +1,16 @@
+﻿node_modules/
+.favorites/
+.next/
+out/
+dist/
+.turbo/
+coverage/
+*.log
+node_modules/
+.next/
+out/
+dist/
+.turbo/
+coverage/
+.favorites/
+*.log

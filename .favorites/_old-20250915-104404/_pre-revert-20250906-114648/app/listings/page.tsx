@@ -1,0 +1,736 @@
+﻿"use client";
+
+import React, { useEffect, useMemo, useRef, useState } from "react";
+
+/** 기준 문구 */
+const BASELINE_NOTE = "기준 고정(체크포인트 6)";
+
+const AGENTS = ["김부장","김과장","강실장","소장","공동","프리중"] as const;
+type Agent = typeof AGENTS[number];
+
+export type ListingStatus = "공개" | "비공개" | "거래중" | "거래완료";
+export type ListingType =
+  | "아파트" | "오피스텔" | "빌라/다세대" | "단독/다가구" | "상가" | "사무실" | "상가주택" | "토지";
+
+export interface Listing {
+  id: string;
+  createdAt: string;
+  dealType: "월세" | "전세" | "매매";
+  code: string;
+  address: string;
+  buildingName?: string;
+  dong?: string;
+  floor?: number;
+  ho?: string;
+  type: ListingType;
+  areaExclusive?: number;
+  rooms?: number;
+  baths?: number;
+  deposit?: number;
+  rent?: number;
+  maintenanceFee?: number;
+
+  parking?: "가능" | "불가" | "문의";
+  parkingOk?: boolean;
+
+  elevator?: boolean;
+  options?: string[];
+  pets?: boolean;
+  vacant?: boolean;
+  moveInDate?: string;
+  moveInPeriod?: "초순" | "중순" | "하순";
+  memo?: string;
+  agent?: Agent;
+  status: ListingStatus;
+
+  lessorName?: string; lessorPhone?: string;
+  lesseeName?: string; lesseePhone?: string;
+  managerName?: string; managerPhone?: string;
+
+  flags?: {
+    lhsh?: boolean;
+    hug?: boolean;
+    hf?: boolean;
+    insurance?: boolean;
+    airbnb?: boolean;
+    biz?: boolean;
+  };
+}
+
+const DATA0: Listing[] = [
+  {
+    id: "L-2025-0001",
+    createdAt: "2025-09-05",
+    dealType: "월세",
+    code: "BO-0004",
+    address: "서울 강동구 천호동 166-82",
+    buildingName: "대수타워", dong: "101", floor: 12, ho: "1203",
+    type: "오피스텔",
+    areaExclusive: 44.2,
+    rooms: 1, baths: 1,
+    deposit: 1000, rent: 65, maintenanceFee: 7,
+    parkingOk: true, parking: "가능",
+    elevator: true, pets: false, options: [],
+    vacant: true, memo: "즉시입주, 로열층",
+    agent: "강실장", status: "공개",
+    lessorName: "홍길동", lessorPhone: "010-1234-5678",
+    flags: { biz: false, lhsh:false, hug:false, hf:false, insurance:false, airbnb:false },
+  },
+  {
+    id: "L-2025-0002",
+    createdAt: "2025-08-28",
+    dealType: "월세",
+    code: "BO-0002",
+    address: "서울 강동구 길동 123-45",
+    buildingName: "길동리버뷰",
+    type: "아파트",
+    areaExclusive: 84.97, floor: 7, rooms: 3, baths: 2,
+    deposit: 3000, rent: 120, maintenanceFee: 12,
+    parkingOk: true, parking: "가능",
+    elevator: true, pets: true, options: ["풀옵션"],
+    vacant: false, moveInDate: "2025-09-15", moveInPeriod: "중순",
+    memo: "거래중, 9/15 퇴거예정",
+    agent: "김부장", status: "거래중",
+    lessorName: "김임대", lessorPhone: "010-2222-3333",
+    lesseeName: "박차임", lesseePhone: "010-4444-5555",
+    flags: { biz: true, lhsh:true, hug:true, hf:false, insurance:true, airbnb:false },
+  },
+  {
+    id: "L-2025-0003",
+    createdAt: "2025-07-15",
+    dealType: "월세",
+    code: "BO-0003",
+    address: "서울 강동구 성내동 55-3",
+    buildingName: "성내스퀘어",
+    type: "상가주택",
+    areaExclusive: 23.1, floor: 1, rooms: 0, baths: 1,
+    deposit: 2000, rent: 180, maintenanceFee: 0,
+    parkingOk: false, parking: "불가",
+    elevator: false, pets: false, options: [],
+    vacant: true, memo: "노출천장, 코너",
+    agent: "소장", status: "비공개",
+    managerName: "관리리", managerPhone: "010-7777-8888",
+    flags: { biz: false, lhsh:false, hug:false, hf:false, insurance:false, airbnb:false },
+  },
+];
+
+/* 유틸 */
+const won = (n?: number) => (n == null ? "-" : n.toLocaleString("ko-KR"));
+const pyeong = (m2?: number) => (m2 == null ? "-" : (m2 * 0.3025).toFixed(1));
+const fmt = (v?: string | number) => (v == null || v === "" ? "-" : String(v));
+const parkingLabel = (r: Listing) => {
+  const ok = (r.parkingOk ?? (r.parking === "가능"));
+  if (r.parking === "문의") return "문의";
+  return ok ? "가능" : "불가";
+};
+
+function rowTint(r: Listing) {
+  if (r.status === "거래완료") return "bg-black text-white/70";
+  if ((r.agent ?? "").includes("공동")) return "bg-green-50";
+  if ((r.agent ?? "").includes("김부장")) return "bg-blue-50";
+  if ((r.agent ?? "").includes("김과장")) return "bg-yellow-50";
+  if ((r.agent ?? "").includes("강실장")) return "bg-pink-50";
+  return "";
+}
+function tenantInfo(r: Listing) {
+  if (r.vacant) return "공실";
+  if (!r.vacant) return "이사가능일";
+  return "-";
+}
+
+/** ===== 열 구성/폭 저장 ===== */
+type ColKey =
+  | "createdAt" | "agent" | "code" | "dealType" | "type" | "rentAll" | "tenant"
+  | "address" | "area" | "rooms" | "elevator" | "parking" | "names" | "phones" | "biz" | "memo";
+type ColDef = { key: ColKey; label: string; width: number; render: (r: Listing)=>React.ReactNode; };
+const DEFAULT_COLS: ColDef[] = [
+  { key:"createdAt", label:"날짜", width:90, render:r=>fmt(r.createdAt) },
+  { key:"agent", label:"담당", width:70, render:r=>r.agent ?? "-" },
+  { key:"code", label:"코드번호", width:100, render:r=>r.code },
+  { key:"dealType", label:"거래유형", width:70, render:r=>r.dealType },
+  { key:"type", label:"건물유형", width:100, render:r=>r.type },
+  { key:"rentAll", label:"임대료(만원)", width:160, render:r=>`${won(r.deposit)} / ${won(r.rent)} / ${won(r.maintenanceFee)}` },
+  { key:"tenant", label:"세입자정보", width:130, render:r=>(<div><div>{tenantInfo(r)}</div>{!r.vacant && (<div className="text-xs text-gray-500">{r.moveInDate ?? "-"}{r.moveInPeriod?` ${r.moveInPeriod}`:""}</div>)}</div>) },
+  { key:"address", label:"주소", width:300, render:r=>(<div><div className="font-medium">{r.address}</div><div className="text-xs text-gray-500">{r.buildingName ?? "-"} {r.dong ? `· ${r.dong}동` : ""} {r.floor ? `${r.floor}층` : ""} {r.ho ? `${r.ho}호` : ""}</div></div>) },
+  { key:"area", label:"전용면적", width:120, render:r=>`${fmt(r.areaExclusive)}㎡ (${pyeong(r.areaExclusive)}평)` },
+  { key:"rooms", label:"방/욕", width:80, render:r=>`${r.rooms ?? 0} / ${r.baths ?? 0}` },
+  { key:"elevator", label:"엘베", width:60, render:r=>r.elevator ? "Y" : "N" },
+  { key:"parking", label:"주차", width:60, render:r=>parkingLabel(r) },
+  { key:"names", label:"임대/임차인", width:150, render:r=>(<div><div><span className="text-xs text-gray-500 mr-1">임대</span>{r.lessorName ?? "-"}</div><div><span className="text-xs text-gray-500 mr-1">임차</span>{r.lesseeName ?? "-"}</div></div>) },
+  { key:"phones", label:"연락처", width:150, render:r=>(<div><div>{r.lessorPhone ?? "-"}</div><div>{r.lesseePhone ?? "-"}</div></div>) },
+  { key:"biz", label:"임대사업자", width:80, render:r=>(r.flags?.biz ? "Y" : "N") },
+  { key:"memo", label:"비고", width:240, render:r=>(<div className="clamp2">{r.memo ?? "-"}</div>) },
+];
+type ColumnsConfig = { order: ColKey[]; widths: Record<ColKey, number> };
+const STORAGE_KEY = "daesu:listings:cols:v2";
+function loadColumns(): ColDef[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return DEFAULT_COLS;
+    const cfg = JSON.parse(raw) as ColumnsConfig;
+    const map = new Map<ColKey, ColDef>();
+    DEFAULT_COLS.forEach(c => map.set(c.key, { ...c, width: cfg.widths[c.key] ?? c.width }));
+    const ordered: ColDef[] = [];
+    cfg.order.forEach(k => { const c = map.get(k as ColKey); if (c) ordered.push(c); });
+    DEFAULT_COLS.forEach(c => { if (!ordered.find(x=>x.key===c.key)) ordered.push(c); });
+    return ordered;
+  } catch { return DEFAULT_COLS; }
+}
+function saveColumns(cols: ColDef[]) {
+  const cfg: ColumnsConfig = { order: cols.map(c=>c.key), widths: Object.fromEntries(cols.map(c=>[c.key, c.width])) as any };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+}
+
+/** 코드 자동생성 */
+function nextCode(dealType: "월세" | "전세" | "매매", rows: Listing[]): string {
+  const prefix = dealType === "월세" ? "BO" : dealType === "전세" ? "BL" : "BM";
+  const nums = rows.map(r=>r.code).filter(c=>c?.startsWith(prefix+"-")).map(c=>Number(c.split("-")[1])).filter(n=>!Number.isNaN(n));
+  const next = (nums.length ? Math.max(...nums) : 0) + 1;
+  return `${prefix}-${String(next).padStart(4,"0")}`;
+}
+
+/** 상세검색 상태 */
+type DetailFilter = {
+  minDeposit?: number; maxDeposit?: number;
+  minRent?: number; maxRent?: number;
+  minArea?: number; maxArea?: number;
+  minRooms?: number; maxRooms?: number;
+  options?: {
+    pets?: boolean; elev?: boolean; full?: boolean;
+    parkingOk?: boolean;
+    lhsh?: boolean; hug?: boolean; hf?: boolean; insurance?: boolean; airbnb?: boolean;
+  };
+};
+
+type Tab = "ALL" | "MONTHLY" | "JEONSE" | "SALE";
+
+export default function ListingsPage() {
+  
+  // ==== [열 리사이즈 상태/로직] =====================================================
+  const USER_KEY = "anon"; // 로그인 연동 시 사용자 식별자 대입
+  const COLS = [
+    { key: "date",    label: "날짜",        min: 70,  def: 90  },
+    { key: "agent",   label: "담당",        min: 70,  def: 90  },
+    { key: "code",    label: "코드번호",    min: 90,  def: 110 },
+    { key: "deal",    label: "거래유형",    min: 70,  def: 90  },
+    { key: "type",    label: "건물유형",    min: 80,  def: 100 },
+    { key: "price",   label: "임대료(만원)",min: 130, def: 160 },
+    { key: "tenant",  label: "세입자정보",  min: 110, def: 140 },
+    { key: "address", label: "주소",        min: 180, def: 260 },
+    { key: "area",    label: "전용면적",    min: 90,  def: 120 },
+    { key: "rooms",   label: "방/욕",       min: 70,  def: 90  },
+    { key: "elev",    label: "엘베",        min: 50,  def: 60  },
+    { key: "park",    label: "주차",        min: 60,  def: 80  },
+    { key: "people",  label: "임대/임차인", min: 120, def: 150 },
+    { key: "phones",  label: "연락처",      min: 120, def: 150 },
+    { key: "biz",     label: "임대사업자",  min: 80,  def: 90  },
+    { key: "memo",    label: "비고",        min: 140, def: 200 },
+  ] as const;
+  type ColKey = typeof COLS[number]["key"];
+  const LS_KEY = `ds:listings:colW:v1:${USER_KEY}`;
+
+  function makeDefaultColW() {
+    const o: Record<ColKey, number> = {} as any;
+    COLS.forEach(c => { o[c.key as ColKey] = c.def; });
+    return o;
+  }
+  function loadColW() {
+    try {
+      const raw = typeof window !== "undefined" ? localStorage.getItem(LS_KEY) : null;
+      if (raw) {
+        const saved = JSON.parse(raw) as Partial<Record<ColKey, number>>;
+        const base = makeDefaultColW();
+        (Object.keys(saved) as ColKey[]).forEach(k => {
+          if (typeof saved[k] === "number") base[k] = saved[k]!;
+        });
+        return base;
+      }
+    } catch {}
+    return makeDefaultColW();
+  }
+
+  const [colW, setColW] = useState<Record<ColKey, number>>(() => loadColW());
+  useEffect(() => {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(colW)); } catch {}
+  }, [colW]);
+
+  const [drag, setDrag] = useState<null | { key: ColKey; startX: number; startW: number }>(null);
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      if (!drag) return;
+      const c = COLS.find(c => c.key === drag.key)!;
+      const dx = e.clientX - drag.startX;
+      const next = Math.max(c.min, drag.startW + dx);
+      setColW(prev => ({ ...prev, [drag.key]: next }));
+    }
+    function onUp() { setDrag(null); }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [drag]);
+
+  function startDrag(key: ColKey, clientX: number) {
+    setDrag({ key, startX: clientX, startW: colW[key] });
+  }
+
+  function renderCell(r: Listing, key: ColKey) {
+    switch (key) {
+      case "date":   return (r.createdAt ? r.createdAt : "-");
+      case "agent":  return (r.agent ?? "-");
+      case "code":   return (r.code ?? "-");
+      case "deal":   return (r.dealType ?? "-");
+      case "type":   return r.type;
+      case "price":  return `${won(r.deposit)} / ${won(r.rent)} / ${won(r.maintenanceFee)}`;
+      case "tenant": return (
+        <div>
+          <div>{(r.vacant ? "공실" : (r.moveInDate ? "이사가능일" : "거주중"))}</div>
+          {!r.vacant && r.moveInDate && <div className="text-xs text-gray-500">{r.moveInDate}</div>}
+        </div>
+      );
+      case "address": return (
+        <div>
+          <div className="font-medium">{r.address}</div>
+          <div className="text-xs text-gray-500">
+            {r.buildingName ?? "-"} {r.dong ? `· ${r.dong}동` : ""} {r.ho ? `${r.ho}호` : ""}
+          </div>
+        </div>
+      );
+      case "area":   return `${r.areaExclusive ?? "-"}㎡ (${pyeong(r.areaExclusive)}평)`;
+      case "rooms":  return `${r.rooms ?? 0} / ${r.baths ?? 0}`;
+      case "elev":   return r.elevator ? "Y" : "N";
+      case "park":   return (r.parking ?? "-");
+      case "people": return (
+        <div>
+          <div><span className="text-xs text-gray-500 mr-1">임대</span>{r.lessorName ?? "-"}</div>
+          <div><span className="text-xs text-gray-500 mr-1">임차</span>{r.lesseeName ?? "-"}</div>
+        </div>
+      );
+      case "phones": return (
+        <div>
+          <div>{r.lessorPhone ?? "-"}</div>
+          <div>{r.lesseePhone ?? "-"}</div>
+        </div>
+      );
+      case "biz":    return (r.flags?.biz ? "Y" : "N");
+      case "memo":   return <div className="clamp2">{r.memo ?? "-"}</div>;
+      default:       return "-";
+    }
+  }
+  // ================================================================================
+//HOOK_BLOCK_ENDconst [q, setQ] = useState("");
+  const [vacantOnly, setVacantOnly] = useState(false);
+  const [hideCompleted, setHideCompleted] = useState(true);
+  const [rows, setRows] = useState<Listing[]>(DATA0);
+  const [selected, setSelected] = useState<Listing | null>(null);
+  const [draft, setDraft] = useState<Listing | null>(null);
+  const [tab, setTab] = useState<Tab>("ALL");
+
+  const [cols, setCols] = useState<ColDef[]>([]);
+  const colsRef = useRef<ColDef[]>([]);
+  useEffect(()=>{ const c = loadColumns(); setCols(c); colsRef.current = c; },[]);
+  useEffect(()=>{ colsRef.current = cols; },[cols]);
+
+  const [showDetail, setShowDetail] = useState(false);
+  const [df, setDf] = useState<DetailFilter>({ options:{} });
+
+  const [codeEdit, setCodeEdit] = useState(false);
+
+  function handlePhoneChange<K extends "lessorPhone"|"lesseePhone"|"managerPhone">(key: K) {  
+    return (e: React.ChangeEvent<HTMLInputElement>) => {
+      const only = e.target.value.replace(/\D/g, "");
+      let tail = only.replace(/^010/, "");
+      if (tail.length > 8) tail = tail.slice(0,8);
+      let formatted = "010-";
+      if (tail.length <= 4) formatted += tail;
+      else formatted += tail.slice(0,4) + "-" + tail.slice(4);
+      setDraft(d => d ? ({ ...d, [key]: formatted } as Listing) : d);
+    };
+  }
+
+  const filtered = useMemo(()=>{
+    const query = q.trim().toLowerCase();
+    return rows.filter(r=>{
+      if (vacantOnly && !r.vacant) return false;
+      if (hideCompleted && r.status === "거래완료") return false;
+      if (tab==="MONTHLY" && r.dealType!=="월세") return false;
+      if (tab==="JEONSE" && r.dealType!=="전세") return false;
+      if (tab==="SALE" && r.dealType!=="매매") return false;
+
+      if (df.minDeposit!=null && (r.deposit??0) < df.minDeposit) return false;
+      if (df.maxDeposit!=null && (r.deposit??0) > df.maxDeposit) return false;
+      if (df.minRent!=null && (r.rent??0) < df.minRent) return false;
+      if (df.maxRent!=null && (r.rent??0) > df.maxRent) return false;
+      if (df.minArea!=null && (r.areaExclusive??0) < df.minArea) return false;
+      if (df.maxArea!=null && (r.areaExclusive??0) > df.maxArea) return false;
+      if (df.minRooms!=null && (r.rooms??0) < df.minRooms) return false;
+      if (df.maxRooms!=null && (r.rooms??0) > df.maxRooms) return false;
+
+      const opt = df.options ?? {};
+      if (opt.pets && !r.pets) return false;
+      if (opt.elev && !r.elevator) return false;
+      if (opt.full && !(r.options??[]).includes("풀옵션")) return false;
+      const parkOk = (r.parkingOk ?? (r.parking==="가능"));
+      if (opt.parkingOk && !parkOk) return false;
+
+      const F = r.flags ?? {};
+      if (opt.lhsh && !F.lhsh) return false;
+      if (opt.hug && !F.hug) return false;
+      if (opt.hf && !F.hf) return false;
+      if (opt.insurance && !F.insurance) return false;
+      if (opt.airbnb && !F.airbnb) return false;
+
+      const hay = `${r.address} ${r.buildingName ?? ""} ${r.dong ?? ""} ${r.ho ?? ""} ${r.agent ?? ""} ${r.memo ?? ""}`.toLowerCase();
+      return hay.includes(query);
+    });
+  },[rows,q,vacantOnly,hideCompleted,tab,df]);
+
+  function openEdit(r: Listing) { setSelected(r); setDraft({ ...r }); setCodeEdit(false); }
+  function closeEdit() { setSelected(null); setDraft(null); setCodeEdit(false); }
+  function update<K extends keyof Listing>(key: K, val: Listing[K]) { if (!draft) return; setDraft({...draft, [key]: val}); }
+  function saveDraft(){ if (!draft) return; setRows(prev=>prev.map(r=> r.id===draft.id ? {...draft} : r)); closeEdit(); }
+  function removeSelected(){
+    if (!selected) return;
+    if (!confirm("정말 삭제하시겠어요?")) return;
+    setRows(prev=>prev.filter(r=>r.id!==selected.id)); closeEdit();
+  }
+  function addNew(){
+    const base:"월세"="월세";
+    const item: Listing = {
+      id:`L-${Date.now()}`, createdAt:new Date().toISOString().slice(0,10),
+      dealType:base, code:nextCode(base, rows),
+      address:"", type:"아파트", status:"공개", agent:"김부장",
+      vacant:false, parkingOk:false, parking:"불가", elevator:false, pets:false, options:[], flags:{}
+    };
+    setRows(p=>[item, ...p]); openEdit(item);
+  }
+
+  /** 열 너비 드래그 */
+  function startResize(e: React.MouseEvent, idx: number) {
+    e.preventDefault(); e.stopPropagation();
+    const startX = e.clientX; const startW = colsRef.current[idx].width;
+    const onMove = (ev: MouseEvent) => {
+      const dx = ev.clientX - startX;
+      setCols(prev=>prev.map((c,i)=> i===idx ? {...c, width: Math.max(60, startW+dx)} : c));
+    };
+    const onUp = ()=>{ saveColumns(colsRef.current); document.removeEventListener("mousemove",onMove); document.removeEventListener("mouseup",onUp); };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }  
+
+  return (
+    <div className="w-full max-w-none px-4 md:px-6 py-6 space-y-4">
+      <div className="flex items-center gap-3">
+        <button className="border px-3 py-2 rounded-lg" onClick={()=>history.back()}>← 뒤로가기</button>
+        <h1 className="flex-1 text-center text-2xl font-bold">매물관리</h1>
+        <div className="text-xs text-gray-500">{BASELINE_NOTE}</div>
+
+        <button className="px-3 py-2 rounded-lg bg-black text-white" onClick={()=>setShowDetail(true)}>상세검색</button>
+        <button className={`px-3 py-2 rounded-lg ${tab==="MONTHLY"?"bg-gray-900 text-white":"border"}`} onClick={()=>setTab(tab==="MONTHLY"?"ALL":"MONTHLY")}>월세매물장</button>
+        <button className={`px-3 py-2 rounded-lg ${tab==="JEONSE"?"bg-gray-900 text-white":"border"}`} onClick={()=>setTab(tab==="JEONSE"?"ALL":"JEONSE")}>전세매물장</button>
+        <button className={`px-3 py-2 rounded-lg ${tab==="SALE"?"bg-gray-900 text-white":"border"}`} onClick={()=>setTab(tab==="SALE"?"ALL":"SALE")}>매매매물장</button>
+        <button className="bg-blue-600 text-white px-3 py-2 rounded-lg" onClick={addNew}>+ 매물등록</button>
+      </div>
+
+      <div className="flex items-center gap-4 text-sm">
+        <label className="flex items-center gap-2"><input type="checkbox" checked={vacantOnly} onChange={e=>setVacantOnly(e.target.checked)} /><span>공실만</span></label>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={hideCompleted} onChange={e=>setHideCompleted(e.target.checked)} /><span>거래완료 숨기기(검색 시 표시)</span></label>
+        <div className="ml-auto flex items-center gap-3">
+          <div className="text-gray-500">표시 {filtered.length}건 / 전체 {rows.length}건</div>
+          <input value={q} onChange={(e)=>setQ(e.target.value)} placeholder="주소·메모 검색" className="border rounded-lg px-3 py-2 w-[360px] outline-none focus:ring-2 focus:ring-blue-300" />
+        </div>
+      </div>
+
+                  <div className="border rounded-xl overflow-x-auto">
+        <table className="w-full text-sm table-fixed">
+          <colgroup>
+            {COLS.map(c => (
+              <col key={c.key} style={{ width: colW[c.key as ColKey] }} />
+            ))}
+          </colgroup>
+          <thead className="bg-gray-50">
+            <tr className="[&>th]:px-3 [&>th]:py-2 text-left">
+              {COLS.map(c => (
+                <th key={c.key} className="relative">
+                  <div className="pr-3 truncate">{c.label}</div>
+                  <div
+                    className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-blue-300/40 select-none"
+                    onMouseDown={(e) => startDrag(c.key as ColKey, e.clientX)}
+                    onDoubleClick={() => setColW(p => ({ ...p, [c.key as ColKey]: c.def }))}
+                    title="드래그로 너비 조절 / 더블클릭 기본값"
+                  />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((r) => {
+              const tint = rowTint(r);
+              return (
+                <tr
+                  key={r.id}
+                  className={`border-b last:border-b-0 cursor-pointer hover:bg-gray-50 ${tint}`}
+                  onClick={() => openEdit(r)}
+                >
+                  {COLS.map(c => (
+                    <td key={c.key} className="px-3 py-2">
+                      {renderCell(r, c.key as ColKey)}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+            {filtered.length === 0 && (
+              <tr>
+                <td className="px-3 py-8 text-center text-gray-500" colSpan={COLS.length}>
+                  조건에 맞는 매물이 없습니다.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* 상세검색 패널 */}
+      {showDetail && (
+        <div className="fixed inset-0 bg-black/30 z-40 flex justify-end" onClick={()=>setShowDetail(false)}>
+          <div className="w-[440px] max-w-full h-full bg-white p-5 space-y-4 overflow-y-auto" onClick={(e)=>e.stopPropagation()}>
+            <div className="text-lg font-bold mb-2">상세검색</div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs text-gray-500">보증금 최소</label>
+              <input className="input" type="number" value={df.minDeposit??""} onChange={(e)=>setDf(p=>({...p, minDeposit: e.target.value===""?undefined:Number(e.target.value)}))}/>
+              <label className="text-xs text-gray-500">보증금 최대</label>
+              <input className="input" type="number" value={df.maxDeposit??""} onChange={(e)=>setDf(p=>({...p, maxDeposit: e.target.value===""?undefined:Number(e.target.value)}))}/>
+              <label className="text-xs text-gray-500">월세 최소</label>
+              <input className="input" type="number" value={df.minRent??""} onChange={(e)=>setDf(p=>({...p, minRent: e.target.value===""?undefined:Number(e.target.value)}))}/>
+              <label className="text-xs text-gray-500">월세 최대</label>
+              <input className="input" type="number" value={df.maxRent??""} onChange={(e)=>setDf(p=>({...p, maxRent: e.target.value===""?undefined:Number(e.target.value)}))}/>
+              <label className="text-xs text-gray-500">면적(㎡) 최소</label>
+              <input className="input" type="number" value={df.minArea??""} onChange={(e)=>setDf(p=>({...p, minArea: e.target.value===""?undefined:Number(e.target.value)}))}/>
+              <label className="text-xs text-gray-500">면적(㎡) 최대</label>
+              <input className="input" type="number" value={df.maxArea??""} onChange={(e)=>setDf(p=>({...p, maxArea: e.target.value===""?undefined:Number(e.target.value)}))}/>
+              <label className="text-xs text-gray-500">방 최소</label>
+              <input className="input" type="number" value={df.minRooms??""} onChange={(e)=>setDf(p=>({...p, minRooms: e.target.value===""?undefined:Number(e.target.value)}))}/>
+              <label className="text-xs text-gray-500">방 최대</label>
+              <input className="input" type="number" value={df.maxRooms??""} onChange={(e)=>setDf(p=>({...p, maxRooms: e.target.value===""?undefined:Number(e.target.value)}))}/>
+            </div>
+
+            <div className="mt-2 font-medium text-gray-700">옵션/기타</div>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex items-center gap-2"><input type="checkbox" checked={!!df.options?.pets} onChange={e=>setDf(p=>({...p, options:{...(p.options??{}), pets:e.target.checked}}))}/>반려동물</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={!!df.options?.elev} onChange={e=>setDf(p=>({...p, options:{...(p.options??{}), elev:e.target.checked}}))}/>엘리베이터</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={!!df.options?.full} onChange={e=>setDf(p=>({...p, options:{...(p.options??{}), full:e.target.checked}}))}/>풀옵션</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={!!df.options?.parkingOk} onChange={e=>setDf(p=>({...p, options:{...(p.options??{}), parkingOk:e.target.checked}}))}/>주차 가능</label>
+            </div>
+
+            <div className="mt-2 font-medium text-gray-700">기관/보증</div>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex items-center gap-2"><input type="checkbox" checked={!!df.options?.lhsh} onChange={e=>setDf(p=>({...p, options:{...(p.options??{}), lhsh:e.target.checked}}))}/>LH·SH</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={!!df.options?.hug} onChange={e=>setDf(p=>({...p, options:{...(p.options??{}), hug:e.target.checked}}))}/>HUG</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={!!df.options?.hf} onChange={e=>setDf(p=>({...p, options:{...(p.options??{}), hf:e.target.checked}}))}/>HF</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={!!df.options?.insurance} onChange={e=>setDf(p=>({...p, options:{...(p.options??{}), insurance:e.target.checked}}))}/>보증보험</label>
+              <label className="flex items-center gap-2 col-span-2"><input type="checkbox" checked={!!df.options?.airbnb} onChange={e=>setDf(p=>({...p, options:{...(p.options??{}), airbnb:e.target.checked}}))}/>에어비엔비</label>
+            </div>
+
+            <div className="flex gap-2 pt-3">
+              <button className="border px-3 py-2 rounded-lg" onClick={()=>{setDf({options:{}});}}>초기화</button>
+              <button className="bg-blue-600 text-white px-3 py-2 rounded-lg" onClick={()=>setShowDetail(false)}>적용</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 수정 패널 */}
+      {selected && draft && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex justify-end" onClick={closeEdit}>
+          <div className="w-[900px] max-w-full h-full bg-white p-6 pb-24 overflow-y-auto relative" onClick={(e)=>e.stopPropagation()}>
+            <h2 className="text-xl font-bold mb-4">매물 정보</h2>
+
+            {/* 상단 작은 입력들 한 줄 배치 */}
+            <div className="flex flex-wrap items-end gap-3 mb-2">
+              <FieldMini label="날짜"><input className="input w-[160px]" type="date" value={draft.createdAt} onChange={e=>update("createdAt", e.target.value)} /></FieldMini>
+              <FieldMini label="담당">
+                <select className="input w-[140px]" value={draft.agent ?? "김부장"} onChange={e=>update("agent", e.target.value as Agent)}>
+                  {AGENTS.map(a=> <option key={a} value={a}>{a}</option>)}
+                </select>
+              </FieldMini>
+              <FieldMini label="거래유형">
+                <select className="input w-[120px]" value={draft.dealType} onChange={e=>{ const v = e.target.value as "월세"|"전세"|"매매"; update("dealType", v); update("code", nextCode(v, rows)); }}>
+                  <option>월세</option><option>전세</option><option>매매</option>
+                </select>
+              </FieldMini>
+              <div className="w-[180px]">
+                <label className="block">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="text-xs text-gray-500">코드번호</div>
+                    <button className="text-xs px-2 py-1 border rounded text-gray-600" onClick={()=>setCodeEdit(v=>!v)}>
+                      {codeEdit ? "수정완료" : "수정"}
+                    </button>
+                  </div>
+                  <input
+                    className={`input w-[180px] ${codeEdit ? "" : "bg-gray-100 text-gray-400"}`}
+                    value={draft.code}
+                    onChange={e=>update("code", e.target.value)}
+                    readOnly={!codeEdit}
+                  />
+                </label>
+              </div>
+              <FieldMini label="건물유형">
+                <select className="input w-[150px]" value={draft.type} onChange={e=>update("type", e.target.value as ListingType)}>
+                  {["아파트","오피스텔","빌라/다세대","단독/다가구","상가","사무실","상가주택","토지"].map(t=> <option key={t} value={t}>{t}</option>)}
+                </select>
+              </FieldMini>
+            </div>
+
+            {/* 본문 폼 */}
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="주소"><input className="input" value={draft.address} onChange={e=>update("address", e.target.value)} placeholder="ex) 천호동 166-82" /></Field>
+
+              <Field label="동 / 층수 / 호">
+                <div className="flex gap-2">
+                  <input className="input w-1/3" value={draft.dong ?? ""} onChange={e=>update("dong", e.target.value)} placeholder="동"/>
+                  <input className="input w-1/3" type="number" value={draft.floor ?? 0} onChange={e=>update("floor", Number(e.target.value))} placeholder="층"/>
+                  <input className="input w-1/3" value={draft.ho ?? ""} onChange={e=>update("ho", e.target.value)} placeholder="호"/>
+                </div>
+              </Field>
+
+              {/* === 요청: 임대료 블록을 전용면적보다 먼저 배치 === */}
+              <Field label="보증 / 월세 / 관리비 (만원)">
+                <div className="flex gap-2">
+                  <input className="input" type="number" value={draft.deposit ?? 0} onChange={e=>update("deposit", Number(e.target.value))}/>
+                  <input className="input" type="number" value={draft.rent ?? 0} onChange={e=>update("rent", Number(e.target.value))} />
+                  <input className="input" type="number" value={draft.maintenanceFee ?? 0} onChange={e=>update("maintenanceFee", Number(e.target.value))}/>
+                </div>
+                <div className="text-xs text-gray-500 mt-1">(관리비포함사항 수기입력은 비고에 작성)</div>
+              </Field>
+
+              <Field label="전용면적(㎡)">
+                <div>
+                  <input className="input" type="number" step="0.01" value={draft.areaExclusive ?? 0} onChange={e=>update("areaExclusive", Number(e.target.value))}/>
+                  <div className="text-xs text-gray-500 mt-1">{draft.areaExclusive ? `≈ ${(draft.areaExclusive*0.3025).toFixed(1)} 평` : "㎡ 입력 시 평 자동계산"}</div>
+                </div>
+              </Field>
+
+              <Field label="방 / 욕">
+                <div className="flex gap-2">
+                  <input className="input" type="number" value={draft.rooms ?? 0} onChange={e=>update("rooms", Number(e.target.value))}/>
+                  <input className="input" type="number" value={draft.baths ?? 0} onChange={e=>update("baths", Number(e.target.value))}/>
+                </div>
+              </Field>
+
+              <Field label="세입자정보">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={!!draft.vacant} onChange={e=>update("vacant", e.target.checked)}/>
+                    <span>공실</span>
+                  </label>
+                  {!draft.vacant && (
+                    <>
+                      <input className="input" type="date" value={draft.moveInDate ?? ""} onChange={e=>update("moveInDate", e.target.value)} />
+                      <div className="flex items-center gap-2 text-sm">
+                        <label className="flex items-center gap-1"><input type="radio" name="period" checked={draft.moveInPeriod==="초순"} onChange={()=>update("moveInPeriod","초순")} />초순</label>
+                        <label className="flex items-center gap-1"><input type="radio" name="period" checked={draft.moveInPeriod==="중순"} onChange={()=>update("moveInPeriod","중순")} />중순</label>
+                        <label className="flex items-center gap-1"><input type="radio" name="period" checked={draft.moveInPeriod==="하순"} onChange={()=>update("moveInPeriod","하순")} />하순</label>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </Field>
+
+              {/* === 요청: 연락처 블록을 체크박스들(옵션/기관) 위로 이동 === */}
+              <Field label="임대인">
+                <div className="flex items-center gap-2">
+                  <input className="input w-40" placeholder="ex) 성함,별칭" value={draft.lessorName ?? ""} onChange={e=>update("lessorName", e.target.value)} />
+                  <input className="input flex-1" placeholder="0000 - 0000" value={draft.lessorPhone ?? "010-"} onFocus={()=>{ if(!draft.lessorPhone) update("lessorPhone","010-"); }} onChange={handlePhoneChange("lessorPhone")} />
+                </div>
+              </Field>
+              <Field label="임차인">
+                <div className="flex items-center gap-2">
+                  <input className="input w-40" placeholder="ex) 성함,별칭" value={draft.lesseeName ?? ""} onChange={e=>update("lesseeName", e.target.value)} />
+                  <input className="input flex-1" placeholder="0000 - 0000" value={draft.lesseePhone ?? "010-"} onFocus={()=>{ if(!draft.lesseePhone) update("lesseePhone","010-"); }} onChange={handlePhoneChange("lesseePhone")} />
+                </div>
+              </Field>
+              <Field label="관리자(표시 안함)">
+                <div className="flex items-center gap-2">
+                  <input className="input w-40" placeholder="ex) 성함,별칭" value={draft.managerName ?? ""} onChange={e=>update("managerName", e.target.value)} />
+                  <input className="input flex-1" placeholder="0000 - 0000" value={draft.managerPhone ?? "010-"} onFocus={()=>{ if(!draft.managerPhone) update("managerPhone","010-"); }} onChange={handlePhoneChange("managerPhone")} />
+                </div>
+              </Field>
+
+              {/* 옵션/설비(체크박스) */}
+              <Field label="옵션/설비">
+                <div className="grid grid-cols-3 gap-2">
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={!!draft.elevator} onChange={e=>update("elevator", e.target.checked)} />엘리베이터</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={!!draft.pets} onChange={e=>update("pets", e.target.checked)} />반려동물</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={(draft.options??[]).includes("풀옵션")} onChange={e=>{ const s=new Set(draft.options??[]); e.target.checked?s.add("풀옵션"):s.delete("풀옵션"); update("options", Array.from(s)); }} />풀옵션</label>
+                  <label className="flex items-center gap-2 col-span-3 sm:col-span-1">
+                    <input type="checkbox"
+                      checked={ (draft.parkingOk ?? (draft.parking==="가능")) }
+                      onChange={(e)=>{ const ok=e.target.checked; update("parkingOk", ok); update("parking", ok?"가능":"불가"); }} />
+                    주차 가능
+                  </label>
+                </div>
+              </Field>
+
+              {/* 기관/보증(체크박스) */}
+              <Field label="기관/보증">
+                <div className="grid grid-cols-3 gap-2">
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={!!draft.flags?.lhsh} onChange={e=>update("flags", {...(draft.flags??{}), lhsh:e.target.checked})}/>LH·SH</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={!!draft.flags?.hug} onChange={e=>update("flags", {...(draft.flags??{}), hug:e.target.checked})}/>HUG</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={!!draft.flags?.hf} onChange={e=>update("flags", {...(draft.flags??{}), hf:e.target.checked})}/>HF</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={!!draft.flags?.insurance} onChange={e=>update("flags", {...(draft.flags??{}), insurance:e.target.checked})}/>보증보험</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={!!draft.flags?.airbnb} onChange={e=>update("flags", {...(draft.flags??{}), airbnb:e.target.checked})}/>에어비엔비</label>
+                </div>
+              </Field>
+
+              <div className="col-span-2">
+                <Field label="비고(알아야될 정보 + 특징)">
+                  <textarea className="input h-24" value={draft.memo ?? ""} onChange={e=>update("memo", e.target.value)} />
+                </Field>
+              </div>
+            </div>
+
+            {/* === 하단 고정 버튼바: 좌측(뒤로가기/삭제) · 우측(저장) === */}
+            <div className="sticky bottom-0 left-0 right-0 mt-6 -mx-6 px-6 py-3 bg-white border-t flex items-center justify-between">
+              <div className="flex gap-2">
+                <button className="border px-3 py-2 rounded-lg" onClick={closeEdit}>← 뒤로가기</button>
+                <button className="border border-red-500 text-red-600 px-3 py-2 rounded-lg" onClick={removeSelected}>삭제</button>
+              </div>
+              <button className="bg-blue-600 text-white px-4 py-2 rounded-lg" onClick={saveDraft}>저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style jsx global>{`
+        .input { @apply w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-300; }
+        .clamp2{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:break-all; }
+      `}</style>
+    </div>
+  );
+}
+
+function Field({label, children}:{label:string; children:React.ReactNode}) {  
+  return (
+    <label className="block">
+      <div className="text-xs text-gray-500 mb-1">{label}</div>
+      {children}
+    </label>
+  );
+}
+function FieldMini({label, children}:{label:string; children:React.ReactNode}) {  
+  return (
+    <label className="block">
+      <div className="text-xs text-gray-500 mb-1">{label}</div>
+      {children}
+    </label>
+  );
+}
+
+
+
+
+

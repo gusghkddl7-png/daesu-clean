@@ -1,0 +1,41 @@
+﻿=== Wide Tab Suspects 20250919-154915 ===
+
+---- app\_client\NoScrollJank.tsx ----
+        return origContainerScrollTo(...(args as any));
+      } as any;
+    }
+
+    // === 전역 이벤트 ===
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      const a = target?.closest?.('a[href="#"], a[href=""]') as HTMLAnchorElement | null;
+      if (a) e.preventDefault();
+    };
+    document.addEventListener("click", onClick, { capture: true });
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.key === "Enter" && el && el.tagName !== "TEXTAREA") {
+        const form = el.closest("form");
+        if (form) e.preventDefault();
+
+---- app\listings\[id]\edit\page.tsx ----
+    }
+    if (f.areaM2 && !/^\d+(\.\d+)?$/.test(f.areaM2))
+      e.areaM2 = "?レ옄 ?먮뒗 ?뚯닔濡??낅젰?섏꽭?? ?? 44.2";
+    return e;
+  }, [f]);
+
+  const hasError = Object.keys(errors).length > 0;
+
+  const onFormKeyDownCapture: React.KeyboardEventHandler<HTMLFormElement> = (e) => {
+    if (e.key !== "Tab") return;
+    const t = e.target as HTMLElement;
+    if (
+      t.hasAttribute("data-skip-tab") ||
+      (t as HTMLInputElement).type === "checkbox" ||
+      (t as HTMLInputElement).type === "date" ||
+      t.getAttribute("tabindex") === "-1"
+    ) {
+
+

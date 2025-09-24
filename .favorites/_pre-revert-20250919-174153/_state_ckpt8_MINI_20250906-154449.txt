@@ -1,0 +1,44 @@
+﻿## CHECKPOINT-8 MINI REPORT (v2)
+Generated: 2025-09-06 15:44:49 +09:00
+PSVersion: 5.1.26100.4768
+Root: C:\Users\대수\Downloads\daesu-clean
+appDir: C:\Users\대수\Downloads\daesu-clean\app
+
+## RUNTIME
+node: v22.18.0
+npm: (not found)
+
+## SIGN-IN DUPLICATE CHECK
+(auth)/sign-in: False
+plain /sign-in: False
+
+## ROUTES (page.tsx)
+count: 1
+- \listings\page.tsx
+
+## KEY FILES
+- C:\Users\대수\Downloads\daesu-clean\app\listings\page.tsx | 40445 bytes | 2025-09-06 오후 2:04:09 | SHA256=4D7A7B2F88F5...
+- C:\Users\대수\Downloads\daesu-clean\app\layout.tsx | 487 bytes | 2025-09-05 오후 3:06:41 | SHA256=ED4A2B03CDDB...
+- C:\Users\대수\Downloads\daesu-clean\app\globals.css | 503 bytes | 2025-09-05 오후 3:41:14 | SHA256=5741602726DF...
+- C:\Users\대수\Downloads\daesu-clean\tailwind.config.js | 250 bytes | 2025-09-05 오후 3:10:22 | SHA256=A8682E0E832D...
+- C:\Users\대수\Downloads\daesu-clean\postcss.config.js | 87 bytes | 2025-09-05 오후 3:10:22 | SHA256=27786F834BA3...
+
+## PATTERN CHECKS (line numbers)
+listings page: C:\Users\대수\Downloads\daesu-clean\app\listings\page.tsx
+- 상세검색: 192,432,498,502
+- 월세: 18,64,82,101,185,186,360,402,433,509,511,563,564,603
+- 전세: 18,185,186,361,434,563,564
+- 매매: 18,185,362,435,563,564
+- 매물장: 433,434,435
+- 등록: 436
+- 거래완료: 11,128,359,441,708,709
+- 공동: 8,129
+- 김부장: 8,93,130,406,558
+- 김과장: 8,131
+- 강실장: 8,75,132
+- BO: 34,36,38,39,51,52,53,54,55,56,65,83,102,186,199,200,201,428,429,433,434,435,440,441,444,448,470,476,494,502,525,526,527,528,533,534,535,536,537,541,552,571,629,668,669,670,672,683,684,685,686,687,699,701,702,706,720,721
+- BL: 128,130,186,325,432,436,444,449,461,463,495,500,542,550,568,713,720,729,737
+- BM: 186
+- 뒤로: 428,698,701
+- 삭제: 398,698,702
+- 저장: 141,698,713

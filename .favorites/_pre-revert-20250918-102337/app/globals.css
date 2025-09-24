@@ -1,0 +1,36 @@
+﻿@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 표 기본 라인 */
+table { border-collapse: separate; border-spacing: 0; }
+th, td { border-bottom: 1px solid #e5e7eb; }
+
+/* 공통 입력/버튼 스타일 - Tailwind 컴포넌트 레이어 */
+@layer components {
+  .input { @apply w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-300; }
+  .btn { @apply border rounded-lg px-3 py-2; }
+  .btn-primary { @apply rounded-lg px-3 py-2 text-white bg-blue-600; }
+}
+
+/* --- Scroll isolation (앱 스크롤 컨테이너만 스크롤) --- */
+html, body { height: 100%; overflow: hidden; }
+#app-scroll { height: 100%; overflow-y: auto; overscroll-behavior-y: contain; }
+
+/* ★ Tab 이동 즉시 반응: 포커스가 들어와 있는 동안은 '항상' 즉시 스크롤 */
+html:focus-within { scroll-behavior: auto !important; }
+#app-scroll:focus-within { scroll-behavior: auto !important; }
+
+/* (세이프가드) 혹시 다른 곳에서 smooth 걸어도 기본은 auto */
+html { scroll-behavior: auto !important; }
+
+/* ★ 포커스 링: 항상 또렷하게 보이도록 */
+:where(input, textarea, select, button, a, [tabindex]):focus-visible {
+  outline: 2px solid #2563eb; /* blue-600 */
+  outline-offset: 2px;
+}
+
+/* ⚠ 아래 속성들은 CSS가 아니라 HTML 속성입니다. (CSS에 쓰면 효과 없음)
+   필요한 필드에만 JSX 속성으로 지정하세요:
+   autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+*/
