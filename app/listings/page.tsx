@@ -7,7 +7,6 @@ type Deal = "월세" | "전세" | "매매";
 type Listing = {
   _id?: string; // DB 문서 id
   id?: string;  // (옛 샘플용, 미사용)
-
   createdAt: string;
   agent: string;
   code: string;
@@ -202,10 +201,7 @@ export default function ListingsPage() {
   useEffect(() => setQS("lhsh", lhsh || null), [lhsh]);
   useEffect(() => setQS("guar", guar || null), [guar]);
   useEffect(() => setQS("vacant", onlyVacant ? "1" : null), [onlyVacant]);
-  useEffect(
-    () => setQS("hideDone", hideCompleted ? "1" : null),
-    [hideCompleted]
-  );
+  useEffect(() => setQS("hideDone", hideCompleted ? "1" : null), [hideCompleted]);
 
   useEffect(() => setQS("depMin", depMin || null), [depMin]);
   useEffect(() => setQS("depMax", depMax || null), [depMax]);
@@ -222,12 +218,9 @@ export default function ListingsPage() {
   useEffect(() => setQS("parkYes", parkYes ? "1" : null), [parkYes]);
   useEffect(() => setQS("petsYes", petsYes ? "1" : null), [petsYes]);
 
-  useEffect(
-    () => setQS("bt", btSel.length ? btSel.join("|") : null),
-    [btSel]
-  );
+  useEffect(() => setQS("bt", btSel.length ? btSel.join("|") : null), [btSel]);
 
-  // 탭 프리필터 (요청 사항 반영)
+  // 탭 프리필터
   const tabFilter = (x: Listing) => {
     switch (tab) {
       case "월세매물장":
@@ -237,7 +230,7 @@ export default function ListingsPage() {
       case "매매매물장":
         return x.dealType === "매매";
       case "상가/사무실매물장":
-        return catOf(x.buildingType) === "상가/사무실"; // 상가주택 제외
+        return catOf(x.buildingType) === "상가/사무실";
       case "재개발매물장":
         return catOf(x.buildingType) === "재개발/재건축";
       default:
@@ -251,13 +244,13 @@ export default function ListingsPage() {
     const needle = q.trim().toLowerCase();
     const searching = needle.length > 0;
 
-   if (needle) {
-  r = r.filter(
-    (x) =>
-      (x.address ?? "").toLowerCase().includes(needle) ||
-      (x.memo ?? "").toLowerCase().includes(needle)
-  );
-}
+    if (needle) {
+      r = r.filter(
+        (x) =>
+          (x.address ?? "").toLowerCase().includes(needle) ||
+          (x.memo ?? "").toLowerCase().includes(needle)
+      );
+    }
     if (onlyVacant) r = r.filter((x) => x.vacant);
     if (hideCompleted && !searching) r = r.filter((x) => !x.completed);
 
@@ -487,24 +480,23 @@ export default function ListingsPage() {
       <div className="border-y">
         <div className="overflow-auto">
           <table className="min-w-[1200px] w-full text-sm table-fixed">
-            {/* 열 너비 고정 */}
             <colgroup>
-              <col className="w-[110px]" />   {/* 날짜 */}
-              <col className="w-[65px]" />    {/* 담당 */}
-              <col className="w-[80px]" />    {/* 코드번호 */}
-              <col className="w-[80px]" />    {/* 거래유형 */}
-              <col className="w-[110px]" />   {/* 건물유형 */}
-              <col className="w-[140px]" />   {/* 임대료(보/월/관) */}
-              <col className="w-[110px]" />   {/* 세입자 */}
-              <col className="w-[110px]" />   {/* 주소 */}
-              <col className="w-[90px]" />    {/* 전용면적 */}
-              <col className="w-[70px]" />    {/* 방/욕 */}
-              <col className="w-[48px]" />    {/* 엘베 */}
-              <col className="w-[60px]" />    {/* 주차 */}
-              <col className="w-[130px]" />   {/* 임대/임차인 */}
-              <col className="w-[150px]" />   {/* 연락처 */}
-              <col className="w-[70px]" />    {/* 임사자 */}
-              <col className="w-[460px]" />   {/* 비고 */}
+              <col className="w-[110px]" />
+              <col className="w-[65px]" />
+              <col className="w-[80px]" />
+              <col className="w-[80px]" />
+              <col className="w-[110px]" />
+              <col className="w-[140px]" />
+              <col className="w-[110px]" />
+              <col className="w-[110px]" />
+              <col className="w-[90px]" />
+              <col className="w-[70px]" />
+              <col className="w-[48px]" />
+              <col className="w-[60px]" />
+              <col className="w-[130px]" />
+              <col className="w-[150px]" />
+              <col className="w-[70px]" />
+              <col className="w-[460px]" />
             </colgroup>
 
             <thead className="bg-gray-100">
@@ -540,7 +532,6 @@ export default function ListingsPage() {
                   }
                   title={(r as any)._id ? "클릭하여 수정하기" : undefined}
                 >
-                  {/* 대부분 칸은 한 줄 고정 + 말줄임 */}
                   <td className="px-3 py-2 font-medium truncate">{fmtDate(r.createdAt)}</td>
                   <td className="px-3 py-2 truncate">{r.agent}</td>
                   <td className="px-3 py-2 truncate">{r.code}</td>
@@ -550,12 +541,10 @@ export default function ListingsPage() {
                     {`${fmtWon(r.deposit)} / ${fmtWon(r.rent)} / ${fmtWon(r.mgmt)}`}
                   </td>
 
-                  {/* 세입자: 상태 + (작은글씨) 날짜 */}
                   <td className="px-3 py-2">
                     <TenantCell info={r.tenantInfo} />
                   </td>
 
-                  {/* 주소: 두 줄(주소/상세), 각 줄은 말줄임 */}
                   <td className="px-3 py-2">
                     <div className="truncate">{r.address}</div>
                     {r.addressSub && (
@@ -563,7 +552,6 @@ export default function ListingsPage() {
                     )}
                   </td>
 
-                  {/* 전용면적 + (작은글씨) 평수 */}
                   <td className="px-3 py-2">
                     <div className="truncate">{r.areaM2 ? `${r.areaM2.toFixed(1)}㎡` : "-"}</div>
                     {typeof r.areaM2 === "number" && !isNaN(r.areaM2) && (
@@ -582,7 +570,6 @@ export default function ListingsPage() {
                     <div className="text-xs truncate">임차 {r.tenant || "-"}</div>
                   </td>
 
-                  {/* 연락처: 하이픈 포맷 */}
                   <td className="px-3 py-2">
                     <div className="text-xs truncate">{fmtPhone(r.contact1)}</div>
                     {r.contact2 ? (
@@ -592,7 +579,6 @@ export default function ListingsPage() {
 
                   <td className="px-3 py-2 truncate">{r.isBiz ?? "-"}</td>
 
-                  {/* 비고: 1줄 + (작은 글씨) 1줄 + 넘치면 … */}
                   <td className="px-3 py-2 align-top">
                     <TwoLineCell text={r.memo} firstLen={20} secondLen={20} />
                   </td>
@@ -691,8 +677,7 @@ export default function ListingsPage() {
                       <Input
                         value={areaMax}
                         onChange={(e: any) =>
-                          setAreaMax(e.target.value.replace(/\D/g, ""))
-                        }
+                          setAreaMax(e.target.value.replace(/\D/g, ""))}
                         placeholder="최대"
                       />
                     </div>
@@ -740,16 +725,14 @@ export default function ListingsPage() {
                       <Input
                         value={roomsMin}
                         onChange={(e: any) =>
-                          setRoomsMin(e.target.value.replace(/\D/g, ""))
-                        }
+                          setRoomsMin(e.target.value.replace(/\D/g, ""))}
                         placeholder="최소"
                       />
                       <span className="text-gray-400">~</span>
                       <Input
                         value={roomsMax}
                         onChange={(e: any) =>
-                          setRoomsMax(e.target.value.replace(/\D/g, ""))
-                        }
+                          setRoomsMax(e.target.value.replace(/\D/g, ""))}
                         placeholder="최대"
                       />
                     </div>
@@ -760,16 +743,14 @@ export default function ListingsPage() {
                       <Input
                         value={bathsMin}
                         onChange={(e: any) =>
-                          setBathsMin(e.target.value.replace(/\D/g, ""))
-                        }
+                          setBathsMin(e.target.value.replace(/\D/g, ""))}
                         placeholder="최소"
                       />
                       <span className="text-gray-400">~</span>
                       <Input
                         value={bathsMax}
                         onChange={(e: any) =>
-                          setBathsMax(e.target.value.replace(/\D/g, ""))
-                        }
+                          setBathsMax(e.target.value.replace(/\D/g, ""))}
                         placeholder="최대"
                       />
                     </div>
