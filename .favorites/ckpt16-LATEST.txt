@@ -1,1 +1,0 @@
-﻿PATH=C:\Users\대수\Downloads\daesu-clean\.favorites\ckpt16-20250922-104949
