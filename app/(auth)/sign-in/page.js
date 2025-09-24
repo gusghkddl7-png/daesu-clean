@@ -1,5 +1,9 @@
 "use client";
-export const revalidate = 0; // ✅ 로그인 페이지 캐시 비활성화(숫자만 허용)
+
+// ✅ 이 페이지도 캐시 완전 차단
+export const revalidate = 0;
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -40,9 +44,9 @@ export default function SignInPage() {
       } else {
         const users = loadUsers();
         const u = users.find(x => x.id === id);
-        if(!u) throw new Error("\uAC00\uC785\uB41C \uC544\uC774\uB514\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
-        if(u.status !== "approved") throw new Error("\uAD00\uB9AC\uC790 \uC2B9\uC778 \uB300\uAE30\uC911\uC785\uB2C8\uB2E4.");
-        if(u.password !== password) throw new Error("\uBE44\uBC00\uBC88\uD638\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+        if(!u) throw new Error("가입된 아이디가 없습니다.");
+        if(u.status !== "approved") throw new Error("관리자 승인 대기중입니다.");
+        if(u.password !== password) throw new Error("비밀번호가 올바르지 않습니다.");
         saveSession({ id, role: "user" });
       }
       try{
@@ -50,7 +54,7 @@ export default function SignInPage() {
         else { localStorage.removeItem("neob:id"); localStorage.removeItem("neob:pw"); }
       }catch{}
       router.replace(nextQ.startsWith("/") ? nextQ : "/dashboard");
-    } catch(e){ setErr(e?.message || "\uB85C\uADF8\uC778 \uC2E4\uD328"); }
+    } catch(e){ setErr(e?.message || "로그인 실패"); }
     finally{ setLoading(false); }
   }
 
@@ -59,15 +63,15 @@ export default function SignInPage() {
   return (
     <div className="screen">
       <div className="card">
-        <div className="brand" aria-disabled>{'\uB300\uC218\uBD80\uB3D9\uC0B0'}</div>
+        <div className="brand" aria-disabled>{"대수부동산"}</div>
 
         <form className="form" onSubmit={onSubmit} id="loginForm">
           <label className="field">
-            <span className="label">{'\uC544\uC774\uB514'}</span>
+            <span className="label">아이디</span>
             <input
               name="id"
               type="text"
-              placeholder={'\uC544\uC774\uB514\uB97C \uC785\uB825\uD558\uC138\uC694'}
+              placeholder={"아이디를 입력하세요"}
               value={id}
               onChange={e=>setId(e.target.value)}
               autoComplete="username"
@@ -76,11 +80,11 @@ export default function SignInPage() {
           </label>
 
           <label className="field">
-            <span className="label">{'\uBE44\uBC00\uBC88\uD638'}</span>
+            <span className="label">비밀번호</span>
             <input
               name="password"
               type="password"
-              placeholder={'\uBE44\uBC00\uBC88\uD638\uB97C \uC785\uB825\uD558\uC138\uC694'}
+              placeholder={"비밀번호를 입력하세요"}
               value={password}
               onChange={e=>setPassword(e.target.value)}
               autoComplete="current-password"
@@ -90,25 +94,25 @@ export default function SignInPage() {
 
           <label className="remember">
             <input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)} />
-            <span>{'\uC544\uC774\uB514/\uBE44\uBC00\uBC88\uD638 \uC800\uC7A5'}</span>
+            <span>아이디/비밀번호 저장</span>
           </label>
 
           {err && <p className="error">{err}</p>}
 
           <button className="btn primary" disabled={loading}>
-            {loading ? '\uB85C\uADF8\uC778 \uC911...' : '\uB85C\uADF8\uC778'}
+            {loading ? "로그인 중..." : "로그인"}
           </button>
 
           <div className="actions">
-            <a className="link" href="/sign-up" onClick={go("/sign-up")}>{'\uD68C\uC6D0\uAC00\uC785'}</a><span className="dot">•</span>
-            <a className="link" href="/forgot-id" onClick={go("/forgot-id")}>{'\uC544\uC774\uB514 \uCC3E\uAE30'}</a><span className="dot">•</span>
-            <a className="link" href="/forgot-password" onClick={go("/forgot-password")}>{'\uBE44\uBC00\uBC88\uD638 \uCC3E\uAE30'}</a>
+            <a className="link" href="/sign-up" onClick={go("/sign-up")}>회원가입</a><span className="dot">•</span>
+            <a className="link" href="/forgot-id" onClick={go("/forgot-id")}>아이디 찾기</a><span className="dot">•</span>
+            <a className="link" href="/forgot-password" onClick={go("/forgot-password")}>비밀번호 찾기</a>
           </div>
         </form>
       </div>
 
       <footer className="site-footer">
-        <span className="since"><strong>{'\uB300\uC218\uBD80\uB3D9\uC0B0'}</strong> <span className="sep">—</span> {'since 2025'}</span>
+        <span className="since"><strong>{"대수부동산"}</strong> <span className="sep">—</span> {"since 2025"}</span>
       </footer>
 
       <style jsx>{`
