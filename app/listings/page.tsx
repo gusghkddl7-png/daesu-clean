@@ -125,8 +125,13 @@ const BT_CATS = [
   { label: "재개발/재건축", match: ["재개발", "재건축"] },
 ] as const;
 type BtCat = (typeof BT_CATS)[number]["label"];
-const catOf = (bt: string): BtCat | "기타" =>
-  BT_CATS.find((c) => c.match.some(m => bt.toLowerCase().includes(m.toLowerCase())))?.label ?? "기타";
+const catOf = (bt?: string): BtCat | "기타" => {
+  const s = (bt ?? "").toLowerCase();
+  return (
+    BT_CATS.find((c) => c.match.some((m) => s.includes(m.toLowerCase())))?.label ??
+    "기타"
+  );
+};
 
 export default function ListingsPage() {
   const router = useRouter();
@@ -246,13 +251,13 @@ export default function ListingsPage() {
     const needle = q.trim().toLowerCase();
     const searching = needle.length > 0;
 
-    if (needle) {
-      r = r.filter(
-        (x) =>
-          x.address.toLowerCase().includes(needle) ||
-          (x.memo ?? "").toLowerCase().includes(needle)
-      );
-    }
+   if (needle) {
+  r = r.filter(
+    (x) =>
+      (x.address ?? "").toLowerCase().includes(needle) ||
+      (x.memo ?? "").toLowerCase().includes(needle)
+  );
+}
     if (onlyVacant) r = r.filter((x) => x.vacant);
     if (hideCompleted && !searching) r = r.filter((x) => !x.completed);
 
