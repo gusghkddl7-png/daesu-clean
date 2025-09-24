@@ -12,3 +12,8 @@ out/
 
 # Vercel
 .vercel/
+
+# editor backups
+*.bak*
+*.disabled-*
+
