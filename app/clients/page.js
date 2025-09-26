@@ -2,12 +2,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-/* storage */
+/* storage (clients만 사용) */
 const loadClients = () => { try { return JSON.parse(localStorage.getItem("daesu:clients")||"[]"); } catch { return []; } };
 const saveClients  = (arr)=> { try { localStorage.setItem("daesu:clients", JSON.stringify(arr)); } catch {} };
-
-const loadUrgent = () => { try { return JSON.parse(localStorage.getItem("daesu:urgent")||"[]"); } catch { return []; } };
-const saveUrgent = (arr)=> { try { localStorage.setItem("daesu:urgent", JSON.stringify(arr)); } catch {} };
 
 /* constants */
 const STAFFS = ["김부장","김과장","강실장","소장","공동"];
@@ -16,23 +13,23 @@ const SP_REGIONS = ["잠실동","삼전동","풍납동"];
 const ROOM_TYPES = ["원룸","1.5룸","2룸","3룸","4룸"];
 const PROGRAMS  = ["LH/SH","허그","HF"];
 
+/* 연한색 팔레트 6가지 + 없음 */
+const COLOR_CHOICES = [
+  { key:"",          name:"없음",      bg:"#ffffff", border:"#e5e7eb" },
+  { key:"#E0F2FE",   name:"하늘",      bg:"#E0F2FE", border:"#bae6fd" }, // sky-100
+  { key:"#DCFCE7",   name:"연두",      bg:"#DCFCE7", border:"#bbf7d0" }, // green-100
+  { key:"#FEF3C7",   name:"연노랑",    bg:"#FEF3C7", border:"#fde68a" }, // amber-100
+  { key:"#FFE4E6",   name:"연핑크",    bg:"#FFE4E6", border:"#fecdd3" }, // rose-100
+  { key:"#F3E8FF",   name:"연보라",    bg:"#F3E8FF", border:"#e9d5ff" }, // violet-100/200
+  { key:"#E5E7EB",   name:"연회색",    bg:"#F3F4F6", border:"#E5E7EB" }, // gray-100
+];
+
 /* utils */
 const fmtDate = (d)=>{ const x=new Date(d); const y=x.getFullYear(); const m=String(x.getMonth()+1).padStart(2,"0"); const dd=String(x.getDate()).padStart(2,"0"); return `${y}-${m}-${dd}`; };
 const todayStr = ()=> fmtDate(new Date());
 const onlyDigits = (s)=> (s||"").replace(/\D/g,"");
 const fmtPhone = (s)=>{ const d=onlyDigits(s); if(d.length<=3) return d; if(d.length<=7) return d.replace(/(\d{3})(\d+)/,"$1-$2"); return d.replace(/(\d{3})(\d{3,4})(\d{0,4}).*/, (m,a,b,c)=> c?`${a}-${b}-${c}`:`${a}-${b}`); };
 const moneyPair = (d,m)=> (d||m) ? `${d||0}/${m||0}` : "-";
-function dayDiffFromToday(dateStr){ if(!dateStr) return null; const d=new Date(dateStr); if(Number.isNaN(+d)) return null; const t=new Date(); d.setHours(0,0,0,0); t.setHours(0,0,0,0); return Math.round((d-t)/86400000); }
-function syncUrgentByClient(client){
-  const list = loadUrgent(); const idx = list.findIndex(u=>u.sourceClientId===client.id);
-  const dd = dayDiffFromToday(client.moveIn); const should = dd!==null && dd<=30;
-  if(should){
-    const item = { id: idx>=0? list[idx].id : ("u"+Date.now()), title:`${client.sourceAlias || "고객"} 입주희망`,
-      staff:client.staff||"", due:client.moveIn||"", memo:"[자동연동] 고객/문의", sourceClientId:client.id };
-    if(idx>=0) list[idx]=item; else list.push(item); saveUrgent(list);
-  }else{ if(idx>=0){ list.splice(idx,1); saveUrgent(list);} }
-}
-const staffTone = (s)=> s==="김부장"?"tone-blue" : s==="김과장"?"tone-yellow" : s==="공동"?"tone-green" : "";
 
 /* page */
 export default function ClientsPage(){
@@ -44,7 +41,7 @@ export default function ClientsPage(){
     inquiryDate: todayStr(),
     depositW:"", monthlyW:"",
     regions:[],
-    regionAny:false,       // ★ 희망지역 상관없음
+    regionAny:false,
     parking:false, pets:false, fullOption:false, needLoan:false,
     roomTypes:[],
     moveIn:"",
@@ -52,12 +49,13 @@ export default function ClientsPage(){
     memo:"",
     sourceAlias:"",
     programs:[],
-    closed:false
+    closed:false,
+    labelColor:"" // 행 배경색(선택)
   };
 
   const [items,setItems] = useState([]);
   const [q,setQ] = useState("");
-  const [showClosed, setShowClosed] = useState(true);   // ★ 종료 표시 토글 (기본 true)
+  const [showClosed, setShowClosed] = useState(true);
 
   const [open,setOpen] = useState(false);
   const [isEdit,setEdit] = useState(false);
@@ -66,7 +64,12 @@ export default function ClientsPage(){
   const [regionOpen,setRegionOpen] = useState(false);
   const regionRef = useRef(null);
 
-  useEffect(()=>{ setItems(loadClients()); },[]);
+  useEffect(()=>{
+    // 기존 데이터에 labelColor가 없을 수 있으므로 보정
+    const raw = loadClients();
+    const patched = Array.isArray(raw) ? raw.map(x=>({ labelColor:"", ...x })) : [];
+    setItems(patched);
+  },[]);
   useEffect(()=>{
     function onDoc(e){ if(!regionRef.current) return; if(!regionRef.current.contains(e.target)) setRegionOpen(false); }
     if(regionOpen) document.addEventListener("mousedown", onDoc);
@@ -84,7 +87,7 @@ export default function ClientsPage(){
         (x.sourceAlias||"").includes(kw)
       );
     }
-    if(!showClosed){ arr = arr.filter(x=>!x.closed); } // ★ 종료 숨김
+    if(!showClosed){ arr = arr.filter(x=>!x.closed); }
     return [...arr].sort((a,b)=>{
       const ka = a.inquiryDate||"0000-00-00"; const kb = b.inquiryDate||"0000-00-00";
       if(ka!==kb) return kb.localeCompare(ka);
@@ -93,7 +96,7 @@ export default function ClientsPage(){
   },[items,q,showClosed]);
 
   const openNew = ()=>{ setDraft({...empty, id:"c"+Date.now()}); setEdit(false); setOpen(true); };
-  const openEdit= (x)=>{ setDraft({ ...empty, ...x, programs: Array.isArray(x.programs)? x.programs : [], closed: !!x.closed }); setEdit(true); setOpen(true); };
+  const openEdit= (x)=>{ setDraft({ ...empty, ...x, programs: Array.isArray(x.programs)? x.programs : [], closed: !!x.closed, labelColor: x.labelColor||"" }); setEdit(true); setOpen(true); };
   const close   = ()=>{ setOpen(false); setDraft(empty); setRegionOpen(false); };
 
   const toggle = (arr,v)=> arr.includes(v)? arr.filter(x=>x!==v) : [...arr,v];
@@ -123,12 +126,12 @@ export default function ClientsPage(){
       phone:    onlyDigits(String(draft.phone||"")).slice(0,11),
       programs: Array.isArray(draft.programs)? draft.programs : [],
       closed: !!draft.closed,
-      regions: draft.regionAny ? [] : draft.regions
+      regions: draft.regionAny ? [] : draft.regions,
+      labelColor: draft.labelColor || ""
     };
 
     const next = isEdit ? items.map(i=>i.id===norm.id? norm : i) : [...items, norm];
     setItems(next); saveClients(next);
-    syncUrgentByClient(norm);
     close();
   };
 
@@ -137,8 +140,6 @@ export default function ClientsPage(){
     if(!confirm("삭제하시겠습니까?")) return;
     const next = items.filter(i=>i.id!==draft.id);
     setItems(next); saveClients(next);
-    const u = loadUrgent(); const idx = u.findIndex(x=>x.sourceClientId===draft.id);
-    if(idx>=0){ u.splice(idx,1); saveUrgent(u); }
     close();
   };
 
@@ -176,12 +177,15 @@ export default function ClientsPage(){
           <div>날짜</div><div>담당</div><div>가격</div><div>지역</div><div>요구사항</div><div>방갯수</div><div>입주일</div><div>유입경로</div><div>연락처</div><div>비고</div>
         </div>
         <div className="tbody">
-          {filtered.map((x, idx)=>(
+          {filtered.map((x, idx)=>{
+            const bg = x.labelColor || "";
+            return (
             <button
               key={x.id}
-              className={`row ${staffTone(x.staff)} ${x.closed ? "closed":""}`}
+              className={`row ${x.closed ? "closed":""}`}
               onClick={()=>openEdit(x)}
               title="클릭하여 수정"
+              style={bg ? { background:bg, borderColor:"#e5e7eb"} : undefined}
             >
               <div className="cell">
                 <span className="badge">{idx+1}</span>
@@ -199,7 +203,7 @@ export default function ClientsPage(){
               <div className="cell">{x.phone? fmtPhone(x.phone): "-"}</div>
               <div className="cell ellipsis" title={x.memo||""}>{x.memo||""}</div>
             </button>
-          ))}
+          )})}
           {!filtered.length && <div className="empty">데이터가 없습니다.</div>}
         </div>
       </div>
@@ -341,6 +345,27 @@ export default function ClientsPage(){
               </div>
             </div>
 
+            {/* ★ 표시색 선택 */}
+            <div className="frow">
+              <label>표시색(선택)</label>
+              <div className="colorRow">
+                {COLOR_CHOICES.map(c=>(
+                  <label key={c.key||"none"} className={"swatch"+(draft.labelColor===c.key?" on":"")}
+                         style={{background:c.bg, borderColor:c.border}}
+                  >
+                    <input
+                      type="radio"
+                      name="labelColor"
+                      value={c.key}
+                      checked={draft.labelColor===c.key}
+                      onChange={()=>setDraft({...draft, labelColor:c.key})}
+                    />
+                    <span>{c.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
             <div className="btns">
               <label className="endCk">
                 <input type="checkbox" checked={draft.closed} onChange={e=>setDraft({...draft, closed:e.target.checked})}/>
@@ -365,33 +390,29 @@ export default function ClientsPage(){
         .primary{border:1px solid #111;background:#111;color:#fff;border-radius:10px;padding:8px 12px;font-weight:800}
 
         .filters{margin:6px 0;display:flex;align-items:center;gap:10px;justify-content:space-between}
-        .search{width:50%;border:1px solid #d1d5db;border-radius:10px;padding:8px 10px} /* 절반 너비 */
-        .showClosed{display:inline-flex;gap:6px;align-items:center}
-        .showClosed input{width:16px;height:16px}
+        .search{width:50%;border:1px solid #d1d5db;border-radius:10px;padding:7px 10px;font-size:13px}
 
         .table.slim{background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden}
         .thead,.row{
           display:grid;
           grid-template-columns:120px 80px 120px minmax(120px,.4fr) 120px minmax(120px,.4fr) 110px 140px 130px 1.2fr;
         }
-        .thead{background:#fafafa;border-bottom:1px solid #e5e7eb;font-weight:800;color:#333;text-align:center}
-        .thead > div,.row .cell{padding:8px 8px}
+        .thead{background:#fafafa;border-bottom:1px solid #e5e7eb;font-weight:800;color:#333;text-align:center;font-size:12px}
+        .thead > div,.row .cell{padding:7px 8px}
         .thead > div{border-right:1px solid #eee}
         .thead > div:last-child{border-right:none}
         .tbody{display:flex;flex-direction:column}
-        .row{cursor:pointer;border-bottom:1px solid #f1f5f9;background:#fff;text-align:center;transition:background .15s ease}
-        .row:hover{background:#fbfbfb}
+        .row{
+          cursor:pointer;border-bottom:1px solid #f1f5f9;background:#fff;text-align:center;transition:background .15s ease;
+          font-size:13px;
+        }
+        .row:hover{filter:brightness(0.99)}
         .row .cell{border-right:1px solid #f0f0f0;position:relative}
         .row .cell:last-child{border-right:none}
-        .b{font-weight:800}
+        .b{font-weight:700}
         .ellipsis{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .region,.rooms{white-space:normal;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
         .empty{padding:20px;text-align:center;color:#888}
-
-        /* 담당자 하이라이트 */
-        .row.tone-blue{ background:#f0f9ff; }
-        .row.tone-yellow{ background:#fffbeb; }
-        .row.tone-green{ background:#ecfdf5; }
 
         /* 의뢰종료 시: 검정 바탕 + 희미한 글자 */
         .row.closed{ background:#0b0b0b !important; }
@@ -399,8 +420,8 @@ export default function ClientsPage(){
 
         /* 날짜 옆 번호 배지 */
         .badge{
-          display:inline-block;min-width:22px;height:20px;line-height:20px;
-          background:#111;color:#fff;border-radius:999px;font-size:12px;font-weight:800;
+          display:inline-block;min-width:20px;height:18px;line-height:18px;
+          background:#111;color:#fff;border-radius:999px;font-size:11px;font-weight:800;
           margin-right:6px;padding:0 6px;vertical-align:middle;
         }
 
@@ -443,6 +464,16 @@ export default function ClientsPage(){
         .btn.danger:hover{background:#fee2e2}
         .endCk{display:inline-flex;gap:6px;align-items:center}
         .endCk input{width:16px;height:16px}
+
+        /* 표시색 선택 스와치 */
+        .colorRow{display:flex;gap:8px;flex-wrap:wrap}
+        .swatch{
+          display:inline-flex;align-items:center;gap:6px;
+          border:1px solid #e5e7eb;border-radius:999px;padding:6px 10px;cursor:pointer;
+          user-select:none;
+        }
+        .swatch input{display:none}
+        .swatch.on{outline:2px solid #111; outline-offset:1px}
       `}</style>
     </main>
   );

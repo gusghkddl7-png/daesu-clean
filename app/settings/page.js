@@ -234,44 +234,44 @@ export default function Page() {
     );
   }, [notices, nSearch]);
 
-  /* === 공지 팝업: 로그인 후 자동 노출 ===
-     - pinned가 있으면 pinned 중 최신 1건
-     - 없으면 최신 1건
-     - 사용자가 닫거나 '오늘 다시 보지 않기' 누르면 로컬에 저장 */
+  /* === 공지 팝업: 로그인 후 자동 노출 === */
   const [popupNotice, setPopupNotice] = useState(null);
   useEffect(()=>{
     if (!Array.isArray(notices) || notices.length===0) return;
-    // 후보 고르기
     const pinned = notices.filter(n=>n.pinned);
     const pick = (pinned.length ? pinned : notices)
       .slice().sort((a,b)=> new Date(b.createdAt)-new Date(a.createdAt))[0];
-
     if (!pick) return;
 
-    // 이미 본 것인지 확인 (오늘)
     try {
       const seenId = localStorage.getItem(NOTICE_LAST_SEEN_ID) || "";
       const seenAt = localStorage.getItem(NOTICE_LAST_SEEN_AT);
       const seenDate = seenAt ? new Date(seenAt) : null;
       const now = new Date();
       const sameDay = seenDate && seenDate.toDateString() === now.toDateString();
-
-      if (seenId === String(pick.id) && sameDay) return; // 오늘 이미 본 동일 공지
+      if (seenId === String(pick.id) && sameDay) return;
     } catch {}
 
     setPopupNotice(pick);
   }, [notices]);
 
-  function closeNoticePopup(snoozeToday=false){
+  // 항상 "오늘 본 것으로" 기록 (snooze 구분 제거)
+  function closeNoticePopup(){
     try{
       if (popupNotice){
         localStorage.setItem(NOTICE_LAST_SEEN_ID, String(popupNotice.id));
-        if (snoozeToday) localStorage.setItem(NOTICE_LAST_SEEN_AT, new Date().toISOString());
-        else localStorage.removeItem(NOTICE_LAST_SEEN_AT);
+        localStorage.setItem(NOTICE_LAST_SEEN_AT, new Date().toISOString());
       }
     }catch{}
     setPopupNotice(null);
   }
+
+  // ESC로 공지 팝업 닫기 (편의)
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && setPopupNotice(null);
+    if (popupNotice) document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [popupNotice]);
 
   /* === 단축키 === */
   const [shortcuts, setShortcuts] = useState(DEFAULT_SHORTCUTS);
@@ -361,7 +361,7 @@ export default function Page() {
         ))}
       </section>
 
-      {/* PEOPLE (간단 리스트형으로 개편: 표 헤더 제거) */}
+      {/* PEOPLE */}
       {tab==="people" && (
         <>
           <div className="info"><span className="chip">{apiAvailable ? "API 연결됨" : "로컬 폴백"}</span></div>
@@ -408,7 +408,7 @@ export default function Page() {
               ))}</ul>}
           </section>
 
-          {/* (참고) 간단 검색/로컬 목록 – 필요한 경우만 노출 */}
+          {/* 로컬 사용자 목록 */}
           <section className="cardbox">
             <div className="cardtitle">로컬 사용자 목록 (간단)</div>
             <div style={{padding:"var(--pad)"}}>
@@ -634,7 +634,7 @@ export default function Page() {
               <div className="notice-body">{popupNotice.body}</div>
             </div>
             <div className="panel-foot">
-              <button className="mini" onClick={()=>closeNoticePopup(true)}>오늘 다시 보지 않기</button>
+              <button className="mini" onClick={()=>closeNoticePopup()}>오늘 다시 보지 않기</button>
               <div style={{flex:1}}/>
               <button className="mini on" onClick={()=>closeNoticePopup()}>확인</button>
             </div>

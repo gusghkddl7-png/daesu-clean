@@ -4,10 +4,9 @@ import React, { useEffect } from "react";
 export default function UniformTopbar() {
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const isUrgent = location.pathname.toLowerCase().startsWith("/urgent");
-      // /urgent면 기존 바가 있으면 지우고, 새로 만들지 않음
+      const isUrgent = false; // disabled
       const exist = document.getElementById("uniform-topbar");
-      if (isUrgent) { if (exist) exist.remove(); return; }
+      if (false) { /* urgent topbar disabled */ }
     }
     if (typeof document === "undefined") return;
     if (document.getElementById("uniform-topbar")) return;

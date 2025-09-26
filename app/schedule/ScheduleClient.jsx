@@ -21,6 +21,25 @@ const typeList  = ["투어","가계약","본계약","잔금및입주"];
 const timeOptions = (()=>{ const out=[]; for(let m=540;m<=1200;m+=15){ const h=String(Math.floor(m/60)).padStart(2,"0"); const mm=String(m%60).padStart(2,"0"); out.push(`${h}:${mm}`);} return out; })();
 const SEP = "\u200A/\u200A"; // 슬래시 양옆 아주 촘촘
 
+// 시간 문자열(HH:MM) → 분 숫자 (없으면 매우 큰 수로)
+function minutesOrInf(s){
+  if(!s) return 1e9;
+  const [h,m] = s.split(":").map(n=>parseInt(n,10));
+  if(Number.isNaN(h) || Number.isNaN(m)) return 1e9;
+  return h*60+m;
+}
+
+// 하루 정렬: pinned 먼저(같으면 시간 오름차순) → 나머지 시간 오름차순
+function sortDay(arr){
+  return [...arr].sort((a,b)=>{
+    const ap = a.pinned?1:0, bp=b.pinned?1:0;
+    if(ap!==bp) return bp-ap; // pinned(true) 먼저
+    const at = minutesOrInf(a.time), bt = minutesOrInf(b.time);
+    if(at!==bt) return at-bt;
+    return String(a.id).localeCompare(String(b.id));
+  });
+}
+
 export default function ScheduleClient(){
   const router = useRouter();
   const [cursor,setCursor] = useState(()=>{ const n=new Date(); return new Date(n.getFullYear(),n.getMonth(),1); });
@@ -28,12 +47,15 @@ export default function ScheduleClient(){
   const [ready,setReady]   = useState(false);
 
   useEffect(()=>{ // 로컬 일정 로드 + 페이드인
-    try{ const saved = JSON.parse(localStorage.getItem("daesu:events")||"[]"); setEvents(Array.isArray(saved)?saved:[]);}catch{}
+    try{
+      const saved = JSON.parse(localStorage.getItem("daesu:events")||"[]");
+      setEvents(Array.isArray(saved)? saved.map(e=>({ pinned:false, ...e })) : []);
+    }catch{}
     const t = setTimeout(()=>setReady(true), 0);
     return ()=>clearTimeout(t);
   },[]);
 
-  const emptyDraft = { id:"", date:"", type:"투어", staff:"", time:"", phone4:"", nickname:"", memo:"", canceled:false };
+  const emptyDraft = { id:"", date:"", type:"투어", staff:"", time:"", phone4:"", nickname:"", memo:"", canceled:false, pinned:false };
   const [open, setOpen]     = useState(false);
   const [isEdit, setIsEdit] = useState(false);
   const [draft, setDraft]   = useState(emptyDraft);
@@ -46,32 +68,41 @@ export default function ScheduleClient(){
   const total  = blanks + last.getDate();
   const cells  = Math.ceil(total/7)*7;
 
+  const todayKey = ymd(new Date());
+
   const days = useMemo(()=>Array.from({length:cells},(_,i)=>{
     const d = i - blanks + 1;
     const date = new Date(y,m,d);
     const key  = ymd(date);
     const other = d<=0 || d>last.getDate();
-    const list = other ? [] : events
-      .filter(ev=>ev.date===key)
-      .sort((a,b)=>String(a.time||"").localeCompare(String(b.time||"")));
+    const list = other ? [] : sortDay(
+      (events||[]).filter(ev=>ev.date===key)
+    );
     const holiday = other ? null : HOLIDAYS_2025[key];
-    return { date, key, other, events:list, holiday, dow:i%7 };
-  }),[y,m,events,blanks,cells,last]);
+    const isToday = !other && key===todayKey;
+    return { date, key, other, events:list, holiday, dow:i%7, isToday };
+  }),[y,m,events,blanks,cells,last,todayKey]);
 
   const saveAll = (arr)=>{ setEvents(arr); try{ localStorage.setItem("daesu:events", JSON.stringify(arr)); }catch{} };
   const move = (delta)=>setCursor(new Date(y,m+delta,1));
-  const today= ()=>{ const n=new Date(); setCursor(new Date(n.getFullYear(),n.getMonth(),1)); };
-
   const openNew  = (date)=>{ setDraft({ ...emptyDraft, id:"e"+Date.now(), date }); setIsEdit(false); setOpen(true); };
-  const openEdit = (ev)=>{ setDraft({...ev}); setIsEdit(true); setOpen(true); };
+  const openEdit = (ev)=>{ setDraft({ ...emptyDraft, ...ev }); setIsEdit(true); setOpen(true); };
   const close    = ()=>{ setOpen(false); setDraft(emptyDraft); };
+
+  // ‘오늘’ 버튼: 오늘 달로 이동 + 바로 등록 모달 오픈
+  const openTodayNew = ()=>{
+    const n = new Date();
+    setCursor(new Date(n.getFullYear(), n.getMonth(), 1));
+    setTimeout(()=>openNew(ymd(n)), 0);
+  };
 
   const onSave = ()=>{
     if(!draft.type || !typeList.includes(draft.type)) return alert("유형을 선택해 주세요.");
     if(!draft.staff) return alert("담당자를 선택해 주세요.");
     if(!draft.time)  return alert("시간을 선택해 주세요.");
     if(draft.phone4 && !/^\d{4}$/.test(draft.phone4)) return alert("전화번호 뒷자리(4자리)를 입력해 주세요.");
-    const next = isEdit ? events.map(e=>e.id===draft.id? {...draft}:e) : [...events, {...draft}];
+    const norm = { ...draft, pinned: !!draft.pinned, canceled: !!draft.canceled };
+    const next = isEdit ? events.map(e=>e.id===norm.id? norm : e) : [...events, norm];
     saveAll(next); close();
   };
   const onDelete = ()=>{
@@ -94,7 +125,7 @@ export default function ScheduleClient(){
           <button className="nav" onClick={()=>move(1)} aria-label="다음 달">▶</button>
         </div>
         <div className="right">
-          <button className="today" onClick={today}>오늘</button>
+          <button className="today" onClick={openTodayNew} aria-label="오늘 일정 바로 등록">오늘</button>
         </div>
       </div>
 
@@ -109,7 +140,7 @@ export default function ScheduleClient(){
           return (
             <div key={i} className={cls.join(" ")}>
               <div className="chead">
-                <span className="num">{d.date.getDate()}</span>
+                <span className={`num${d.isToday ? " today" : ""}`}>{d.date.getDate()}</span>
                 <button className="add" onClick={()=>openNew(d.key)}>+ 등록</button>
               </div>
               {d.holiday && <div className="hname">{d.holiday}</div>}
@@ -121,6 +152,7 @@ export default function ScheduleClient(){
                   const text = parts.join(SEP);
                   return (
                     <div key={ev.id} className={c.join(" ")} onClick={()=>openEdit(ev)} title={(ev.memo||"")}>
+                      {ev.pinned && <span className="pin" aria-label="고정">📌</span>}
                       {text}{ev.canceled && <span className="tag">취소됨</span>}
                     </div>
                   );
@@ -172,9 +204,16 @@ export default function ScheduleClient(){
               <textarea rows={3} value={draft.memo} onChange={e=>setDraft({...draft, memo:e.target.value})}/>
             </div>
 
-            <div className="cancelRow">
-              <span>취소됨</span>
-              <input type="checkbox" checked={!!draft.canceled} onChange={e=>setDraft({...draft, canceled:e.target.checked})}/>
+            {/* 취소됨 옆에 핀 고정 */}
+            <div className="toggleRow">
+              <label className="toggle">
+                <input type="checkbox" checked={!!draft.canceled} onChange={e=>setDraft({...draft, canceled:e.target.checked})}/>
+                <span>취소됨</span>
+              </label>
+              <label className="toggle">
+                <input type="checkbox" checked={!!draft.pinned} onChange={e=>setDraft({...draft, pinned:e.target.checked})}/>
+                <span>핀 고정</span>
+              </label>
             </div>
 
             <div className="btns">
@@ -214,7 +253,12 @@ export default function ScheduleClient(){
         .cell.other{background:#fbfbfb;color:#9aa0a6}
         .cell.holiday .num{color:#e11d48}
         .chead{display:flex;align-items:center;justify-content:space-between}
-        .num{font-weight:700}
+        .num{font-weight:700;line-height:1}
+        .num.today{
+          display:inline-flex;align-items:center;justify-content:center;
+          height:22px;min-width:22px;padding:0 8px;border-radius:999px;
+          background:#111;color:#fff!important;box-shadow:0 1px 0 rgba(0,0,0,.05);
+        }
         .add{border:1px solid #d1d5db;background:#fff;border-radius:10px;padding:2px 8px;font-size:12px;cursor:pointer}
         .add:hover{background:#f3f4f6}
         .hname{font-size:12px;color:#e11d48}
@@ -223,6 +267,7 @@ export default function ScheduleClient(){
         .item.blue{color:#2563eb}.item.red{color:#e11d48}.item.black{color:#111}
         .item.cancel{color:#e11d48;text-decoration:line-through}
         .item .tag{margin-left:6px;font-size:11px;border:1px solid #fda4af;color:#e11d48;border-radius:999px;padding:0 6px;background:#fff}
+        .item .pin{margin-right:6px}
 
         .modal{position:fixed;inset:0;background:rgba(0,0,0,.28);display:grid;place-items:center;padding:16px;z-index:40}
         .sheet{width:min(700px,95vw);background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 20px 50px rgba(0,0,0,.25);padding:18px}
@@ -232,9 +277,9 @@ export default function ScheduleClient(){
         input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:10px;padding:10px;background:#fff;outline:none}
         textarea{resize:vertical}
 
-        .cancelRow{display:flex;align-items:center;gap:8px;margin:6px 0 12px 0}
-        .cancelRow span{font-weight:700;color:#333}
-        .cancelRow input{width:auto}
+        .toggleRow{display:flex;gap:16px;align-items:center;margin:6px 0 12px 0}
+        .toggle{display:inline-flex;gap:8px;align-items:center;font-weight:700;color:#333}
+        .toggle input{width:auto}
 
         .btns{display:flex;align-items:center;gap:10px}
         .spacer{flex:1}

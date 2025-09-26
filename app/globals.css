@@ -66,3 +66,4 @@ th, td { border-bottom: 1px solid var(--border); }
 
 /* 스무스 스크롤은 페이지 내부에서만 */
 html { scroll-behavior: auto !important; }
+

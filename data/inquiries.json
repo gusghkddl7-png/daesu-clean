@@ -1,6 +1,6 @@
 ﻿[
-  { "_id": "U-101", "name": "임차A", "phone": "010-1111-2222", "area": "천호/길동", "budget": "월 90/50", "type": "원룸", "note": "주차1", "deadlineText": "9월 초순" },
-  { "_id": "U-102", "name": "임차B", "phone": "010-3333-4444", "area": "성내",     "budget": "전세 2억",   "type": "투룸", "note": "",     "deadlineText": "9월 중순" },
+  { "_id": "U-101", "name": "임차A", "phone": "010-1111-2222", "area": "천호/길동", "budget": "월 90/50", "type": "원룸", "note": "주차1", "deadline": "2025-09-05" },
+  { "_id": "U-102", "name": "임차B", "phone": "010-3333-4444", "area": "성내",     "budget": "전세 2억",   "type": "투룸", "note": "",     "deadline": "2025-09-15" },
   { "_id": "U-103", "name": "임차C", "phone": "010-5555-6666", "area": "둔촌",     "budget": "월 70/50",  "type": "오피", "note": "반려묘", "deadline": "2025-09-28" },
-  { "_id": "U-104", "name": "임차D", "phone": "010-7777-8888", "area": "암사",     "budget": "전세 3억",   "type": "쓰리룸", "note": "",   "deadlineText": "10월 하순" }
+  { "_id": "U-104", "name": "임차D", "phone": "010-7777-8888", "area": "암사",     "budget": "전세 3억",   "type": "쓰리룸", "note": "",   "deadline": "2025-10-25" }
 ]

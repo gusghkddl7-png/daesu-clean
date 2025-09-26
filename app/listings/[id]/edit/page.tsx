@@ -30,7 +30,26 @@ function focusNext(form: HTMLFormElement, forward: boolean) {
   items[next].focus();
 }
 
-/* ========= 타입들 ========= */
+/* ========= 유틸 ========= */
+const toPyeong = (m2: number) => (m2 > 0 ? m2 / 3.3058 : 0);
+const formatPhoneLive = (v: string) => {
+  const d = v.replace(/\D/g, "").slice(0, 11);
+  if (d.length <= 3) return d;
+  if (d.length <= 7) return `${d.slice(0, 3)}-${d.slice(3)}`;
+  return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
+};
+type Photo = { name: string; dataUrl: string };
+
+const COLOR_CHOICES = [
+  { key: "", name: "없음", bg: "#ffffff", border: "#e5e7eb" },
+  { key: "#E0F2FE", name: "하늘", bg: "#E0F2FE", border: "#bae6fd" },
+  { key: "#DCFCE7", name: "연두", bg: "#DCFCE7", border: "#bbf7d0" },
+  { key: "#FEF3C7", name: "연노랑", bg: "#FEF3C7", border: "#fde68a" },
+  { key: "#FFE4E6", name: "연핑크", bg: "#FFE4E6", border: "#fecdd3" },
+  { key: "#F3E8FF", name: "연보라", bg: "#F3E8FF", border: "#e9d5ff" },
+] as const;
+
+/* ========= 타입 ========= */
 type Deal = "월세" | "전세" | "매매";
 const BT_CATS = [
   "아파트",
@@ -65,12 +84,13 @@ type Form = {
   rooms: string;
   baths: string;
   loft: boolean;
+  illegal: boolean;
 
   lh: boolean;
   sh: boolean;
   hug: boolean;
   hf: boolean;
-  guarInsured: boolean; // ★ 보증보험
+  guarInsured: boolean;
   isBiz: boolean;
   airbnb: boolean;
 
@@ -79,6 +99,9 @@ type Form = {
   tenantName: string;
   tenantPhone: string;
   memo: string;
+
+  labelColor: string;
+  photos: Photo[];
 
   completed: boolean;
 };
@@ -103,11 +126,12 @@ const initForm: Form = {
   rooms: "",
   baths: "",
   loft: false,
+  illegal: false,
   lh: false,
   sh: false,
   hug: false,
   hf: false,
-  guarInsured: false, // ★ 보증보험 초기값
+  guarInsured: false,
   isBiz: false,
   airbnb: false,
   landlordName: "",
@@ -115,16 +139,14 @@ const initForm: Form = {
   tenantName: "",
   tenantPhone: "",
   memo: "",
+  labelColor: "",
+  photos: [],
   completed: false,
 };
 
-const toPyeong = (m2: number) => (m2 > 0 ? m2 / 3.3058 : 0);
-
 /* ========= 심플 입력 컴포넌트 ========= */
 const L = ({ children }: { children: React.ReactNode }) => (
-  <label className="text-xs font-medium text-gray-600 mb-1 block">
-    {children}
-  </label>
+  <label className="text-xs font-medium text-gray-600 mb-1 block">{children}</label>
 );
 
 const Text = (
@@ -183,9 +205,7 @@ const Textarea = (
     autoCapitalize="off"
     spellCheck={false}
     {...props}
-    className={
-      "border rounded px-3 py-2 text-sm w-full min-h-[90px] " + (props.className || "")
-    }
+    className={"border rounded px-3 py-2 text-sm w-full min-h-[90px] " + (props.className || "")}
   />
 );
 
@@ -231,6 +251,207 @@ const ToggleBtn = ({
   </button>
 );
 
+/* ========= 사진 뷰어(모달 + 좌/우 내비) ========= */
+function PhotoViewer({
+  photos,
+  index,
+  onClose,
+  onPrev,
+  onNext,
+}: {
+  photos: Photo[];
+  index: number;
+  onClose: () => void;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  const p = photos[index];
+
+  // 키보드 단축키
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft") onPrev();
+      if (e.key === "ArrowRight") onNext();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, onPrev, onNext]);
+
+  if (!p) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="relative bg-white rounded-xl shadow-2xl p-3"
+        style={{ width: "80vw", maxWidth: 1400 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* 헤더 */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="font-semibold text-sm truncate pr-2">
+            {p.name} <span className="text-gray-400">({index + 1}/{photos.length})</span>
+          </div>
+          <button
+            className="border rounded px-2 py-0.5 text-sm hover:bg-gray-50"
+            onClick={onClose}
+          >
+            닫기
+          </button>
+        </div>
+
+        {/* 이미지 영역 */}
+        <div className="relative flex items-center justify-center">
+          {/* 좌/우 버튼 */}
+          {photos.length > 1 && (
+            <>
+              <button
+                aria-label="이전"
+                onClick={onPrev}
+                className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 border hover:bg-white"
+              >
+                ‹
+              </button>
+              <button
+                aria-label="다음"
+                onClick={onNext}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 border hover:bg-white"
+              >
+                ›
+              </button>
+            </>
+          )}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={p.dataUrl}
+            alt={p.name}
+            className="max-w-[76vw] max-h-[76vh] w-auto h-auto object-contain rounded"
+          />
+        </div>
+
+        {/* 하단 */}
+        <div className="mt-3 flex items-center justify-between">
+          <a
+            className="inline-flex items-center gap-2 text-sm underline"
+            href={p.dataUrl}
+            download={p.name}
+          >
+            이미지 다운로드
+          </a>
+          {photos.length > 1 && (
+            <div className="text-xs text-gray-500">←/→ 키로 넘겨볼 수 있어요</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ========= 사진 업로더 ========= */
+function PhotoUploader({
+  value,
+  onChange,
+}: {
+  value: Photo[];
+  onChange: (next: Photo[]) => void;
+}) {
+  const [previewIdx, setPreviewIdx] = useState<number | null>(null);
+
+  async function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const input = e.currentTarget;
+    const files = Array.from(input.files || []);
+    if (!files.length) return;
+
+    const toDataURL = (f: File) =>
+      new Promise<Photo>((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve({ name: f.name, dataUrl: String(fr.result) });
+        fr.onerror = reject;
+        fr.readAsDataURL(f);
+      });
+
+    const arr = await Promise.all(files.map(toDataURL));
+    onChange([...(value || []), ...arr]);
+    try {
+      input.value = "";
+    } catch {}
+  }
+
+  function removeAt(idx: number) {
+    const copy = [...(value || [])];
+    copy.splice(idx, 1);
+    onChange(copy);
+  }
+
+  const hasPreview = previewIdx != null && previewIdx >= 0 && previewIdx < (value?.length || 0);
+
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <input type="file" accept="image/*" multiple onChange={onFiles} />
+      </div>
+
+      {(value?.length || 0) > 0 && (
+        <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
+          {value.map((p, i) => (
+            <div key={i} className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={p.dataUrl}
+                alt={p.name}
+                className="w-full h-24 object-cover rounded border cursor-pointer"
+                onClick={() => setPreviewIdx(i)}
+                title="클릭하여 미리보기"
+              />
+              <div className="absolute top-1 right-1 flex gap-1">
+                <a
+                  href={p.dataUrl}
+                  download={p.name}
+                  className="bg-white/95 border rounded px-1 text-[11px]"
+                  onClick={(ev) => ev.stopPropagation()}
+                >
+                  다운
+                </a>
+                <button
+                  type="button"
+                  className="bg-white/95 border rounded px-1 text-[11px]"
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    removeAt(i);
+                  }}
+                >
+                  삭제
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {hasPreview && (
+        <PhotoViewer
+          photos={value}
+          index={previewIdx!}
+          onClose={() => setPreviewIdx(null)}
+          onPrev={() =>
+            setPreviewIdx((idx) =>
+              idx == null ? 0 : (idx - 1 + value.length) % value.length
+            )
+          }
+          onNext={() =>
+            setPreviewIdx((idx) =>
+              idx == null ? 0 : (idx + 1) % value.length
+            )
+          }
+        />
+      )}
+    </>
+  );
+}
+
 /* ========= 페이지 ========= */
 export default function EditListingPage() {
   const router = useRouter();
@@ -240,6 +461,8 @@ export default function EditListingPage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [orig, setOrig] = useState<any>(null);
+
+  // 한 번만 선언
   const formRef = useRef<HTMLFormElement>(null);
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) =>
@@ -282,11 +505,12 @@ export default function EditListingPage() {
           rooms: x?.rooms != null ? String(x.rooms) : "",
           baths: x?.baths != null ? String(x.baths) : "",
           loft: !!x?.loft,
+          illegal: !!x?.illegal,
           lh: !!x?.lh,
           sh: !!x?.sh,
           hug: !!x?.hug,
           hf: !!x?.hf,
-          guarInsured: !!x?.guarInsured, // ★ DB 값 매핑
+          guarInsured: !!x?.guarInsured,
           isBiz: x?.isBiz === "Y",
           airbnb: !!x?.airbnb,
           landlordName: x?.landlord ?? "",
@@ -294,6 +518,8 @@ export default function EditListingPage() {
           tenantName: x?.tenant ?? "",
           tenantPhone: x?.contact2 ?? "",
           memo: x?.memo ?? "",
+          labelColor: x?.labelColor ?? "",
+          photos: Array.isArray(x?.photos) ? x.photos : [],
           completed: !!x?.completed,
         };
 
@@ -343,23 +569,18 @@ export default function EditListingPage() {
 
   const hasError = Object.keys(errors).length > 0;
 
-  // [TAB-SAFE] 폼 캡처 단계에서 Tab만 가볍게 처리. 절대 async/await, setTimeout 등 넣지 말 것.
+  // [TAB-SAFE]
   const onFormKeyDownCapture: React.KeyboardEventHandler<HTMLFormElement> = (e) => {
     if (e.key !== "Tab") return;
-
     const t = e.target as HTMLElement;
-
-    // Tab 스킵 대상
     if (
       t.hasAttribute("data-skip-tab") ||
       (t as HTMLInputElement).type === "checkbox" ||
       (t as HTMLInputElement).type === "date" ||
       t.getAttribute("tabindex") === "-1"
     ) {
-      return; // 기본 Tab 흐름대로
+      return;
     }
-
-    // 커스텀 포커스 이동 (즉시)
     e.preventDefault();
     const form = formRef.current;
     if (!form) return;
@@ -380,7 +601,6 @@ export default function EditListingPage() {
     setSaving(true);
     try {
       const payload = {
-        // 변경 가능한 필드들
         dealType: f.dealType || undefined,
         buildingType: f.buildingType || undefined,
         deposit: f.deposit ? Number(f.deposit) : undefined,
@@ -399,18 +619,21 @@ export default function EditListingPage() {
         tenant: f.tenantName || "",
         contact1: f.landlordPhone || "",
         contact2: f.tenantPhone || "",
-        // 기관/서류
         lh: !!f.lh,
         sh: !!f.sh,
         hug: !!f.hug,
         hf: !!f.hf,
-        guarInsured: !!f.guarInsured, // ★ 보증보험 저장
+        guarInsured: !!f.guarInsured,
         isBiz: f.isBiz ? "Y" : "N",
         airbnb: !!f.airbnb,
-
         memo: f.memo || "",
         vacant: !!f.vacant,
         completed: !!f.completed,
+        // 새 필드들
+        labelColor: f.labelColor || "",
+        loft: !!f.loft,
+        illegal: !!f.illegal,
+        photos: Array.isArray(f.photos) ? f.photos : [],
         updatedAt: new Date(),
       };
 
@@ -716,7 +939,7 @@ export default function EditListingPage() {
                 placeholder="예: 1"
               />
             </div>
-            <div className="flex items-end" data-skip-tab>
+            <div className="flex items-end gap-6" data-skip-tab>
               <label className="inline-flex items-center gap-2 select-none">
                 <input
                   tabIndex={-1}
@@ -726,6 +949,16 @@ export default function EditListingPage() {
                   onChange={(e) => set("loft", e.target.checked)}
                 />
                 <span className="text-sm text-gray-700">복층 여부</span>
+              </label>
+              <label className="inline-flex items-center gap-2 select-none">
+                <input
+                  tabIndex={-1}
+                  type="checkbox"
+                  className="w-4 h-4"
+                  checked={f.illegal}
+                  onChange={(e) => set("illegal", e.target.checked)}
+                />
+                <span className="text-sm text-gray-700">위반건축물</span>
               </label>
             </div>
           </div>
@@ -739,7 +972,7 @@ export default function EditListingPage() {
               ["SH", "sh"],
               ["HUG", "hug"],
               ["HF", "hf"],
-              ["보증보험", "guarInsured"], // ★ 추가
+              ["보증보험", "guarInsured"],
               ["임대사업자", "isBiz"],
               ["에어비앤비", "airbnb"],
             ].map(([label, key]) => (
@@ -757,7 +990,7 @@ export default function EditListingPage() {
           </div>
         </Section>
 
-        {/* 연락 / 메모 */}
+        {/* 연락 / 메모 / 색 / 사진 */}
         <Section title="연락 / 메모">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -775,9 +1008,9 @@ export default function EditListingPage() {
               <Text
                 value={f.landlordPhone}
                 onChange={(e) =>
-                  set("landlordPhone", (e.target as HTMLInputElement).value)
+                  set("landlordPhone", formatPhoneLive((e.target as HTMLInputElement).value))
                 }
-                placeholder="예: 010-1234-5678"
+                placeholder="010-0000-0000"
               />
             </div>
             <div>
@@ -795,11 +1028,37 @@ export default function EditListingPage() {
               <Text
                 value={f.tenantPhone}
                 onChange={(e) =>
-                  set("tenantPhone", (e.target as HTMLInputElement).value)
+                  set("tenantPhone", formatPhoneLive((e.target as HTMLInputElement).value))
                 }
-                placeholder="예: 010-0000-0000"
+                placeholder="010-0000-0000"
               />
             </div>
+
+            <div className="md:col-span-2">
+              <L>표시색(선택)</L>
+              <div className="flex flex-wrap gap-2">
+                {COLOR_CHOICES.map((c) => (
+                  <label
+                    key={c.key || "none"}
+                    className={
+                      "px-3 py-1 rounded-full border cursor-pointer text-sm " +
+                      (f.labelColor === c.key ? "outline outline-2 outline-black" : "")
+                    }
+                    style={{ background: c.bg, borderColor: c.border }}
+                  >
+                    <input
+                      type="radio"
+                      className="hidden"
+                      value={c.key}
+                      checked={f.labelColor === c.key}
+                      onChange={() => set("labelColor", c.key)}
+                    />
+                    {c.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+
             <div className="md:col-span-2">
               <L>메모</L>
               <Textarea
@@ -810,23 +1069,33 @@ export default function EditListingPage() {
                 placeholder="현장 특이사항, 협의 내용 등"
               />
             </div>
+
+            <div className="md:col-span-2">
+              <L>사진</L>
+              <PhotoUploader
+                value={f.photos}
+                onChange={(p) => set("photos", p)}
+              />
+            </div>
           </div>
         </Section>
       </form>
 
-      {/* 하단 액션 (거래완료 체크 + 삭제/저장) */}
+      {/* 하단 액션 */}
       <div className="mt-6 flex items-center justify-between">
-        <label className="inline-flex items-center gap-2 select-none">
-          <input
-            type="checkbox"
-            className="w-4 h-4"
-            checked={f.completed}
-            onChange={(e) => set("completed", e.target.checked)}
-          />
-          <span className="text-sm">거래완료</span>
-        </label>
-
-        <div className="flex gap-2" data-skip-tab>
+        <div className="text-xs text-gray-500">
+          {Object.keys(errors).length ? "필수/숫자/지번 형식을 확인해주세요." : "입력값이 유효합니다."}
+        </div>
+        <div className="flex items-center gap-3" data-skip-tab>
+          <label className="inline-flex items-center gap-2 select-none">
+            <input
+              type="checkbox"
+              className="w-4 h-4"
+              checked={f.completed}
+              onChange={(e) => set("completed", e.target.checked)}
+            />
+            <span className="text-sm">거래완료</span>
+          </label>
           <button type="button" className="px-3 h-10 border rounded-lg" onClick={onDelete}>
             삭제
           </button>
