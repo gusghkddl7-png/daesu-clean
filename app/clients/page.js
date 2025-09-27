@@ -64,22 +64,23 @@ export default function ClientsPage(){
   const [regionOpen,setRegionOpen] = useState(false);
   const regionRef = useRef(null);
 
+  // ★ 최초 진입 시: 서버(DB)에서 최신을 불러오고, localStorage에도 동기화
   useEffect(()=>{
-    // 1차: 서버(DB)에서 로드, 2차: 실패 시 localStorage 폴백
     (async ()=>{
-      try {
-        const res = await fetch("/api/clients", { cache: "no-store" });
-        if (!res.ok) throw new Error("fetch failed");
-        const arr = await res.json();
-        const patched = Array.isArray(arr) ? arr.map(x=>({ labelColor:"", ...x })) : [];
-        setItems(patched);
-      } catch {
-        const raw = loadClients();
-        const patched = Array.isArray(raw) ? raw.map(x=>({ labelColor:"", ...x })) : [];
-        setItems(patched);
-      }
+      try{
+        const res = await fetch("/api/clients", { cache:"no-store" });
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setItems(data);
+          saveClients(data);
+          return;
+        }
+      }catch(e){}
+      // 서버 실패 시 로컬 대체
+      setItems(loadClients());
     })();
   },[]);
+
   useEffect(()=>{
     function onDoc(e){ if(!regionRef.current) return; if(!regionRef.current.contains(e.target)) setRegionOpen(false); }
     if(regionOpen) document.addEventListener("mousedown", onDoc);
@@ -120,7 +121,7 @@ export default function ClientsPage(){
     return arr.length? arr.join("/") : "-";
   };
 
-  // ★ 저장을 DB로 (디자인/문구 그대로)
+  // ★ 저장 시: 서버에도 업서트(POST /api/clients), 성공하면 목록 재조회
   const onSave = async ()=>{
     if(!draft.staff) return alert("담당자를 선택해 주세요.");
     if(!draft.inquiryDate) return alert("문의날짜를 선택해 주세요.");
@@ -132,7 +133,6 @@ export default function ClientsPage(){
 
     const norm = {
       ...draft,
-      id: draft.id || `c${Date.now()}`,
       depositW: onlyDigits(String(draft.depositW||"")).slice(0,8),
       monthlyW: onlyDigits(String(draft.monthlyW||"")).slice(0,6),
       phone:    onlyDigits(String(draft.phone||"")).slice(0,11),
@@ -142,30 +142,27 @@ export default function ClientsPage(){
       labelColor: draft.labelColor || ""
     };
 
-    try {
-      const res = await fetch("/api/clients", {
+    // 낙관적 업데이트 (화면 즉시 반영)
+    const next = isEdit ? items.map(i=>i.id===norm.id? norm : i) : [...items, norm];
+    setItems(next); saveClients(next);
+
+    try{
+      await fetch("/api/clients", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type":"application/json" },
         body: JSON.stringify(norm)
       });
-      if (!res.ok) {
-        const t = await res.text().catch(()=> "");
-        alert("저장 실패: " + t);
-        return;
-      }
-      // 최신 목록을 DB에서 다시 가져와 화면 갱신
-      const listRes = await fetch("/api/clients", { cache: "no-store" });
-      const list = await listRes.json().catch(()=>[]);
-      setItems(Array.isArray(list) ? list : []);
-      // 필요시 로컬에도 백업 저장(선택) — 주석 해제 가능
-      // saveClients(Array.isArray(list) ? list : []);
-      close();
-    } catch (e) {
-      alert("저장 중 오류: " + (e?.message || e));
+      // 서버 기준 최신 재조회
+      const res = await fetch("/api/clients", { cache:"no-store" });
+      const data = await res.json();
+      if (Array.isArray(data)) { setItems(data); saveClients(data); }
+    }catch(e){
+      // 서버 실패해도 화면은 유지
     }
+    close();
   };
 
-  // 기존 UI 유지: 로컬 삭제(백엔드 삭제는 아직 없음)
+  // (참고) 현재는 서버 삭제 API가 없으므로 클라이언트/로컬만 삭제
   const onDelete = ()=>{
     if(!isEdit) return;
     if(!confirm("삭제하시겠습니까?")) return;
