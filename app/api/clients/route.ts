@@ -1,9 +1,10 @@
+// app/api/clients/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "../../../lib/mongo";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/clients -> 전체 목록
+// GET /api/clients -> 전체 목록 (MongoDB)
 export async function GET() {
   try {
     const db = await getDb();
@@ -14,7 +15,7 @@ export async function GET() {
   }
 }
 
-// POST /api/clients -> 새 항목 생성(또는 업서트)
+// POST /api/clients -> 업서트
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
