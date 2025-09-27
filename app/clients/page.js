@@ -102,13 +102,13 @@ export default function ClientsPage(){
   const toggle = (arr,v)=> arr.includes(v)? arr.filter(x=>x!==v) : [...arr,v];
 
   const optionText = (x)=>{
-    const arr=[];
-    if(x.parking) arr.push("二쇱감");
-    if(x.pets) arr.push("?숇Ъ");
-    if(x.fullOption) arr.push("??듭뀡");
-    if(x.needLoan) arr.push("?異?);
-    return arr.length? arr.join("/") : "-";
-  };
+  const arr=[];
+  if (x.parking)    arr.push("주차");
+  if (x.pets)       arr.push("반려동물");
+  if (x.fullOption) arr.push("풀옵션");
+  if (x.needLoan)   arr.push("대출");
+  return arr.length ? arr.join("/") : "-";
+};
 
   const onSave = ()=>{
     if(!draft.staff) return alert("?대떦?먮? ?좏깮??二쇱꽭??");
