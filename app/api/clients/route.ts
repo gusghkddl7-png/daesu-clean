@@ -1,50 +1,35 @@
-// app/api/clients/route.ts
-import path from "path";
-import fs from "fs/promises";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { getDb } from "../../../lib/mongo";
+
 export const dynamic = "force-dynamic";
 
-type Row = {
-  id?: string;
-  name: string;
-  phone?: string;
-  area?: string;
-  need?: string;
-  deadline: string; // yyyy-mm-dd
-  memo?: string;
-};
-
-const DATA_PATH = path.join(process.cwd(), "data", "clients.json");
-
+// GET /api/clients -> 전체 목록
 export async function GET() {
   try {
-    const raw = await fs.readFile(DATA_PATH, "utf8").catch(() => "[]");
-    const arr = JSON.parse(raw);
-    return NextResponse.json(arr);
+    const db = await getDb();
+    const docs = await db.collection("clients").find({}).sort({ _id: -1 }).toArray();
+    return NextResponse.json(docs, { status: 200 });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }
 }
 
-export async function POST(req: Request) {
+// POST /api/clients -> 새 항목 생성(또는 업서트)
+export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as Row; // {name, phone, area, need, deadline, memo}
-    if (!body?.deadline) return NextResponse.json({ ok: false, error: "deadline required" }, { status: 400 });
-    if (!body?.name) body.name = "-";
+    const body = await req.json();
+    const db = await getDb();
 
-    const raw = await fs.readFile(DATA_PATH, "utf8").catch(() => "[]");
-    const arr: Row[] = JSON.parse(raw);
+    const id = body?.id || `c${Date.now()}`;
+    const doc = { ...body, _id: id, id };
 
-    // 키: phone|deadline (필요시 변경)
-    const key = `${body.phone ?? ""}|${body.deadline}`;
-    const map = new Map(arr.map((x) => [`${x.phone ?? ""}|${x.deadline}`, x]));
-    map.set(key, { ...map.get(key), ...body });
+    await db.collection("clients").updateOne(
+      { _id: id },
+      { $set: doc },
+      { upsert: true }
+    );
 
-    const merged = Array.from(map.values());
-    await fs.mkdir(path.dirname(DATA_PATH), { recursive: true });
-    await fs.writeFile(DATA_PATH, JSON.stringify(merged, null, 2), "utf8");
-
-    return NextResponse.json({ ok: true, saved: merged.length });
+    return NextResponse.json({ ok: true, _id: id }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }
