@@ -1,4 +1,5 @@
-﻿"use client";
+﻿export const dynamic = 'force-dynamic';
+"use client";
 
 import { useMemo, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -126,7 +127,7 @@ export default function ListingsPage() {
     (async () => {
       try {
         const base = process.env.NEXT_PUBLIC_BASE_URL || "";
-        const res = await fetch(`${base}/api/listings`, { cache: "no-store" });
+        const res = await fetch(`${base}/api/listings-all`, { cache: "no-store" });
         const arr = (await res.json()) as Listing[];
         if (!alive) return;
         arr.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -527,3 +528,5 @@ export default function ListingsPage() {
     </main>
   );
 }
+
+

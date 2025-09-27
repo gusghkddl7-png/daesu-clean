@@ -1,27 +1,28 @@
+﻿export const dynamic = 'force-dynamic';
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-/* storage (clients만 사용) */
+/* storage (clients留??ъ슜) */
 const loadClients = () => { try { return JSON.parse(localStorage.getItem("daesu:clients")||"[]"); } catch { return []; } };
 const saveClients  = (arr)=> { try { localStorage.setItem("daesu:clients", JSON.stringify(arr)); } catch {} };
 
 /* constants */
-const STAFFS = ["김부장","김과장","강실장","소장","공동"];
-const GD_REGIONS = ["천호동","성내동","둔촌동","길동","암사동","명일동"];
-const SP_REGIONS = ["잠실동","삼전동","풍납동"];
-const ROOM_TYPES = ["원룸","1.5룸","2룸","3룸","4룸"];
-const PROGRAMS  = ["LH/SH","허그","HF"];
+const STAFFS = ["源遺??,"源怨쇱옣","媛뺤떎??,"?뚯옣","怨듬룞"];
+const GD_REGIONS = ["泥쒗샇??,"?깅궡??,"?붿큿??,"湲몃룞","?붿궗??,"紐낆씪??];
+const SP_REGIONS = ["?좎떎??,"?쇱쟾??,"?띾궔??];
+const ROOM_TYPES = ["?먮８","1.5猷?,"2猷?,"3猷?,"4猷?];
+const PROGRAMS  = ["LH/SH","?덇렇","HF"];
 
-/* 연한색 팔레트 6가지 + 없음 */
+/* ?고븳???붾젅??6媛吏 + ?놁쓬 */
 const COLOR_CHOICES = [
-  { key:"",          name:"없음",      bg:"#ffffff", border:"#e5e7eb" },
-  { key:"#E0F2FE",   name:"하늘",      bg:"#E0F2FE", border:"#bae6fd" }, // sky-100
-  { key:"#DCFCE7",   name:"연두",      bg:"#DCFCE7", border:"#bbf7d0" }, // green-100
-  { key:"#FEF3C7",   name:"연노랑",    bg:"#FEF3C7", border:"#fde68a" }, // amber-100
-  { key:"#FFE4E6",   name:"연핑크",    bg:"#FFE4E6", border:"#fecdd3" }, // rose-100
-  { key:"#F3E8FF",   name:"연보라",    bg:"#F3E8FF", border:"#e9d5ff" }, // violet-100/200
-  { key:"#E5E7EB",   name:"연회색",    bg:"#F3F4F6", border:"#E5E7EB" }, // gray-100
+  { key:"",          name:"?놁쓬",      bg:"#ffffff", border:"#e5e7eb" },
+  { key:"#E0F2FE",   name:"?섎뒛",      bg:"#E0F2FE", border:"#bae6fd" }, // sky-100
+  { key:"#DCFCE7",   name:"?곕몢",      bg:"#DCFCE7", border:"#bbf7d0" }, // green-100
+  { key:"#FEF3C7",   name:"?곕끂??,    bg:"#FEF3C7", border:"#fde68a" }, // amber-100
+  { key:"#FFE4E6",   name:"?고븨??,    bg:"#FFE4E6", border:"#fecdd3" }, // rose-100
+  { key:"#F3E8FF",   name:"?곕낫??,    bg:"#F3E8FF", border:"#e9d5ff" }, // violet-100/200
+  { key:"#E5E7EB",   name:"?고쉶??,    bg:"#F3F4F6", border:"#E5E7EB" }, // gray-100
 ];
 
 /* utils */
@@ -50,7 +51,7 @@ export default function ClientsPage(){
     sourceAlias:"",
     programs:[],
     closed:false,
-    labelColor:"" // 행 배경색(선택)
+    labelColor:"" // ??諛곌꼍???좏깮)
   };
 
   const [items,setItems] = useState([]);
@@ -65,7 +66,7 @@ export default function ClientsPage(){
   const regionRef = useRef(null);
 
   useEffect(()=>{
-    // 기존 데이터에 labelColor가 없을 수 있으므로 보정
+    // 湲곗〈 ?곗씠?곗뿉 labelColor媛 ?놁쓣 ???덉쑝誘濡?蹂댁젙
     const raw = loadClients();
     const patched = Array.isArray(raw) ? raw.map(x=>({ labelColor:"", ...x })) : [];
     setItems(patched);
@@ -103,21 +104,21 @@ export default function ClientsPage(){
 
   const optionText = (x)=>{
     const arr=[];
-    if(x.parking) arr.push("주차");
-    if(x.pets) arr.push("동물");
-    if(x.fullOption) arr.push("풀옵션");
-    if(x.needLoan) arr.push("대출");
+    if(x.parking) arr.push("二쇱감");
+    if(x.pets) arr.push("?숇Ъ");
+    if(x.fullOption) arr.push("??듭뀡");
+    if(x.needLoan) arr.push("?異?);
     return arr.length? arr.join("/") : "-";
   };
 
   const onSave = ()=>{
-    if(!draft.staff) return alert("담당자를 선택해 주세요.");
-    if(!draft.inquiryDate) return alert("문의날짜를 선택해 주세요.");
-    if(!draft.depositW && !draft.monthlyW) return alert("보증금/월세 중 최소 하나는 입력해 주세요.");
-    if(!draft.regionAny && !(draft.regions && draft.regions.length)) return alert("희망지역을 선택해 주세요.");
-    if(!(draft.roomTypes && draft.roomTypes.length)) return alert("희망 방 개수를 선택해 주세요.");
-    if(!draft.moveIn) return alert("희망입주일을 선택해 주세요.");
-    if(!draft.phone) return alert("연락처를 입력해 주세요.");
+    if(!draft.staff) return alert("?대떦?먮? ?좏깮??二쇱꽭??");
+    if(!draft.inquiryDate) return alert("臾몄쓽?좎쭨瑜??좏깮??二쇱꽭??");
+    if(!draft.depositW && !draft.monthlyW) return alert("蹂댁쬆湲??붿꽭 以?理쒖냼 ?섎굹???낅젰??二쇱꽭??");
+    if(!draft.regionAny && !(draft.regions && draft.regions.length)) return alert("?щ쭩吏??쓣 ?좏깮??二쇱꽭??");
+    if(!(draft.roomTypes && draft.roomTypes.length)) return alert("?щ쭩 諛?媛쒖닔瑜??좏깮??二쇱꽭??");
+    if(!draft.moveIn) return alert("?щ쭩?낆＜?쇱쓣 ?좏깮??二쇱꽭??");
+    if(!draft.phone) return alert("?곕씫泥섎? ?낅젰??二쇱꽭??");
 
     const norm = {
       ...draft,
@@ -137,7 +138,7 @@ export default function ClientsPage(){
 
   const onDelete = ()=>{
     if(!isEdit) return;
-    if(!confirm("삭제하시겠습니까?")) return;
+    if(!confirm("??젣?섏떆寃좎뒿?덇퉴?")) return;
     const next = items.filter(i=>i.id!==draft.id);
     setItems(next); saveClients(next);
     close();
@@ -150,31 +151,31 @@ export default function ClientsPage(){
   };
 
   const regionsLabel = draft.regionAny
-    ? "상관없음"
+    ? "?곴??놁쓬"
     : (draft.regions.length
-        ? (draft.regions.length<=3 ? draft.regions.join(", ") : `${draft.regions.slice(0,3).join(", ")} 외 ${draft.regions.length-3}`)
-        : "클릭하여 선택");
+        ? (draft.regions.length<=3 ? draft.regions.join(", ") : `${draft.regions.slice(0,3).join(", ")} ??${draft.regions.length-3}`)
+        : "?대┃?섏뿬 ?좏깮");
 
   return (
     <main className="wrap">
       <div className="bar">
-        <div className="left"><button className="back" onClick={()=>router.push("/dashboard")}><span className="arrow">←</span> 뒤로가기</button></div>
-        <div className="center"><div className="title">고객/문의</div></div>
-        <div className="right"><button className="primary" onClick={()=>openNew()}>+ 등록</button></div>
+        <div className="left"><button className="back" onClick={()=>router.push("/dashboard")}><span className="arrow">??/span> ?ㅻ줈媛湲?/button></div>
+        <div className="center"><div className="title">怨좉컼/臾몄쓽</div></div>
+        <div className="right"><button className="primary" onClick={()=>openNew()}>+ ?깅줉</button></div>
       </div>
 
       <div className="filters">
-        <input className="search" placeholder="담당/지역/연락처/유입경로 별칭 검색" value={q} onChange={e=>setQ(e.target.value)} />
+        <input className="search" placeholder="?대떦/吏???곕씫泥??좎엯寃쎈줈 蹂꾩묶 寃?? value={q} onChange={e=>setQ(e.target.value)} />
         <label className="showClosed">
           <input type="checkbox" checked={showClosed} onChange={e=>setShowClosed(e.target.checked)} />
-          <span>의뢰종료 표시</span>
+          <span>?섎ː醫낅즺 ?쒖떆</span>
         </label>
       </div>
 
-      {/* 목록 */}
+      {/* 紐⑸줉 */}
       <div className="table slim">
         <div className="thead">
-          <div>날짜</div><div>담당</div><div>가격</div><div>지역</div><div>요구사항</div><div>방갯수</div><div>입주일</div><div>유입경로</div><div>연락처</div><div>비고</div>
+          <div>?좎쭨</div><div>?대떦</div><div>媛寃?/div><div>吏??/div><div>?붽뎄?ы빆</div><div>諛⑷갗??/div><div>?낆＜??/div><div>?좎엯寃쎈줈</div><div>?곕씫泥?/div><div>鍮꾧퀬</div>
         </div>
         <div className="tbody">
           {filtered.map((x, idx)=>{
@@ -184,7 +185,7 @@ export default function ClientsPage(){
               key={x.id}
               className={`row ${x.closed ? "closed":""}`}
               onClick={()=>openEdit(x)}
-              title="클릭하여 수정"
+              title="?대┃?섏뿬 ?섏젙"
               style={bg ? { background:bg, borderColor:"#e5e7eb"} : undefined}
             >
               <div className="cell">
@@ -193,8 +194,8 @@ export default function ClientsPage(){
               </div>
               <div className="cell b">{x.staff||"-"}</div>
               <div className="cell">{priceWithPrograms(x)}</div>
-              <div className="cell region" title={x.regionAny ? "상관없음" : (x.regions||[]).join(", ")}>
-                {x.regionAny ? "상관없음" : ((x.regions||[]).join(", ")||"-")}
+              <div className="cell region" title={x.regionAny ? "?곴??놁쓬" : (x.regions||[]).join(", ")}>
+                {x.regionAny ? "?곴??놁쓬" : ((x.regions||[]).join(", ")||"-")}
               </div>
               <div className="cell">{optionText(x)}</div>
               <div className="cell rooms">{(x.roomTypes||[]).join(", ")||"-"}</div>
@@ -204,50 +205,50 @@ export default function ClientsPage(){
               <div className="cell ellipsis" title={x.memo||""}>{x.memo||""}</div>
             </button>
           )})}
-          {!filtered.length && <div className="empty">데이터가 없습니다.</div>}
+          {!filtered.length && <div className="empty">?곗씠?곌? ?놁뒿?덈떎.</div>}
         </div>
       </div>
 
-      {/* 등록/수정 모달 */}
+      {/* ?깅줉/?섏젙 紐⑤떖 */}
       {open && (
         <div className="modal">
           <div className="sheet">
-            <button className="x" onClick={close} aria-label="닫기">×</button>
-            <div className="mtitle">{isEdit ? "고객 수정" : "고객 등록"}</div>
+            <button className="x" onClick={close} aria-label="?リ린">횞</button>
+            <div className="mtitle">{isEdit ? "怨좉컼 ?섏젙" : "怨좉컼 ?깅줉"}</div>
 
-            {/* 담당 */}
+            {/* ?대떦 */}
             <div className="frow">
-              <label>담당 <i className="req">*</i></label>
+              <label>?대떦 <i className="req">*</i></label>
               <select value={draft.staff} onChange={e=>setDraft({...draft, staff:e.target.value})}>
-                <option value="">선택</option>
+                <option value="">?좏깮</option>
                 {STAFFS.map(s=><option key={s} value={s}>{s}</option>)}
               </select>
             </div>
 
-            {/* 문의날짜 */}
+            {/* 臾몄쓽?좎쭨 */}
             <div className="frow">
-              <label>문의날짜 <i className="req">*</i></label>
+              <label>臾몄쓽?좎쭨 <i className="req">*</i></label>
               <input type="date" value={draft.inquiryDate||""} onChange={e=>setDraft({...draft, inquiryDate:e.target.value})}/>
             </div>
 
-            {/* 보증금/월세 */}
+            {/* 蹂댁쬆湲??붿꽭 */}
             <div className="frow">
-              <label>보증금/월세 <i className="req">*</i></label>
+              <label>蹂댁쬆湲??붿꽭 <i className="req">*</i></label>
               <div className="twocol">
                 <div className="mini">
-                  <input inputMode="numeric" placeholder="보증금(만원)" value={draft.depositW}
+                  <input inputMode="numeric" placeholder="蹂댁쬆湲?留뚯썝)" value={draft.depositW}
                          onChange={e=>setDraft({...draft, depositW: onlyDigits(e.target.value).slice(0,8)})}/>
                 </div>
                 <div className="mini">
-                  <input inputMode="numeric" placeholder="월세(만원)" value={draft.monthlyW}
+                  <input inputMode="numeric" placeholder="?붿꽭(留뚯썝)" value={draft.monthlyW}
                          onChange={e=>setDraft({...draft, monthlyW: onlyDigits(e.target.value).slice(0,6)})}/>
                 </div>
               </div>
             </div>
 
-            {/* 희망지역 (팝업) */}
+            {/* ?щ쭩吏??(?앹뾽) */}
             <div className="frow" ref={regionRef}>
-              <label>희망지역 <i className="req">*</i></label>
+              <label>?щ쭩吏??<i className="req">*</i></label>
               <div className="region-picker">
                 <button type="button" className={"pickerBtn"+((draft.regions.length||draft.regionAny)?" has":"")} onClick={()=>setRegionOpen(v=>!v)} disabled={draft.regionAny}>
                   {regionsLabel}
@@ -255,14 +256,14 @@ export default function ClientsPage(){
                 <div className="anyLine">
                   <label className="miniCk">
                     <input type="checkbox" checked={draft.regionAny} onChange={e=>setDraft({...draft, regionAny:e.target.checked, regions: e.target.checked? [] : draft.regions})}/>
-                    <span>상관없음</span>
+                    <span>?곴??놁쓬</span>
                   </label>
                 </div>
                 {regionOpen && !draft.regionAny && (
                   <div className="pop">
                     <div className="gwrap">
                       <div className="gcol">
-                        <div className="gtitle">강동구</div>
+                        <div className="gtitle">媛뺣룞援?/div>
                         <div className="gchips horiz">
                           {GD_REGIONS.map(r=>(
                             <label key={r} className="ck"><input type="checkbox" checked={draft.regions.includes(r)} onChange={()=>setDraft({...draft, regions: toggle(draft.regions,r)})}/><span>{r}</span></label>
@@ -270,7 +271,7 @@ export default function ClientsPage(){
                         </div>
                       </div>
                       <div className="gcol">
-                        <div className="gtitle">송파구</div>
+                        <div className="gtitle">?≫뙆援?/div>
                         <div className="gchips horiz">
                           {SP_REGIONS.map(r=>(
                             <label key={r} className="ck"><input type="checkbox" checked={draft.regions.includes(r)} onChange={()=>setDraft({...draft, regions: toggle(draft.regions,r)})}/><span>{r}</span></label>
@@ -279,28 +280,28 @@ export default function ClientsPage(){
                       </div>
                     </div>
                     <div className="popBtns">
-                      <button className="btn ghost" onClick={()=>setDraft({...draft, regions: []})}>전체해제</button>
-                      <button className="btn primary" onClick={()=>setRegionOpen(false)}>적용</button>
+                      <button className="btn ghost" onClick={()=>setDraft({...draft, regions: []})}>?꾩껜?댁젣</button>
+                      <button className="btn primary" onClick={()=>setRegionOpen(false)}>?곸슜</button>
                     </div>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* 요구사항 (같은 줄, 작게) */}
+            {/* ?붽뎄?ы빆 (媛숈? 以? ?묎쾶) */}
             <div className="frow">
-              <label>요구사항</label>
+              <label>?붽뎄?ы빆</label>
               <div className="inlineOpts">
-                <label className="miniCk"><input type="checkbox" checked={draft.parking} onChange={e=>setDraft({...draft, parking:e.target.checked})}/><span>주차</span></label>
-                <label className="miniCk"><input type="checkbox" checked={draft.pets} onChange={e=>setDraft({...draft, pets:e.target.checked})}/><span>동물</span></label>
-                <label className="miniCk"><input type="checkbox" checked={draft.fullOption} onChange={e=>setDraft({...draft, fullOption:e.target.checked})}/><span>풀옵션</span></label>
-                <label className="miniCk"><input type="checkbox" checked={draft.needLoan} onChange={e=>setDraft({...draft, needLoan:e.target.checked})}/><span>대출필요</span></label>
+                <label className="miniCk"><input type="checkbox" checked={draft.parking} onChange={e=>setDraft({...draft, parking:e.target.checked})}/><span>二쇱감</span></label>
+                <label className="miniCk"><input type="checkbox" checked={draft.pets} onChange={e=>setDraft({...draft, pets:e.target.checked})}/><span>?숇Ъ</span></label>
+                <label className="miniCk"><input type="checkbox" checked={draft.fullOption} onChange={e=>setDraft({...draft, fullOption:e.target.checked})}/><span>??듭뀡</span></label>
+                <label className="miniCk"><input type="checkbox" checked={draft.needLoan} onChange={e=>setDraft({...draft, needLoan:e.target.checked})}/><span>?異쒗븘??/span></label>
               </div>
             </div>
 
-            {/* 방(가로 칩) */}
+            {/* 諛?媛濡?移? */}
             <div className="frow">
-              <label>방갯수 <i className="req">*</i></label>
+              <label>諛⑷갗??<i className="req">*</i></label>
               <div className="gchips horiz">
                 {ROOM_TYPES.map(t=>(
                   <label key={t} className="ck">
@@ -311,27 +312,27 @@ export default function ClientsPage(){
               </div>
             </div>
 
-            {/* 입주일 */}
+            {/* ?낆＜??*/}
             <div className="frow">
-              <label>입주일 <i className="req">*</i></label>
+              <label>?낆＜??<i className="req">*</i></label>
               <input type="date" value={draft.moveIn||""} onChange={e=>setDraft({...draft, moveIn:e.target.value})}/>
             </div>
 
-            {/* 유입경로 별칭 */}
+            {/* ?좎엯寃쎈줈 蹂꾩묶 */}
             <div className="frow">
-              <label>유입경로 별칭</label>
-              <input value={draft.sourceAlias} onChange={e=>setDraft({...draft, sourceAlias:e.target.value})} placeholder="예: 네이버, 당근, 지인소개 등"/>
+              <label>?좎엯寃쎈줈 蹂꾩묶</label>
+              <input value={draft.sourceAlias} onChange={e=>setDraft({...draft, sourceAlias:e.target.value})} placeholder="?? ?ㅼ씠踰? ?밴렐, 吏?몄냼媛???/>
             </div>
 
-            {/* 연락처 */}
+            {/* ?곕씫泥?*/}
             <div className="frow">
-              <label>연락처 <i className="req">*</i></label>
+              <label>?곕씫泥?<i className="req">*</i></label>
               <input inputMode="tel" placeholder="010-1234-5678" value={fmtPhone(draft.phone)} onChange={e=>setDraft({...draft, phone: onlyDigits(e.target.value).slice(0,11)})}/>
             </div>
 
-            {/* 비고 + 프로그램 체크 */}
+            {/* 鍮꾧퀬 + ?꾨줈洹몃옩 泥댄겕 */}
             <div className="frow">
-              <label>비고</label>
+              <label>鍮꾧퀬</label>
               <div>
                 <div className="gchips horiz" style={{marginBottom:"8px"}}>
                   {PROGRAMS.map(p=>(
@@ -345,9 +346,9 @@ export default function ClientsPage(){
               </div>
             </div>
 
-            {/* ★ 표시색 선택 */}
+            {/* ???쒖떆???좏깮 */}
             <div className="frow">
-              <label>표시색(선택)</label>
+              <label>?쒖떆???좏깮)</label>
               <div className="colorRow">
                 {COLOR_CHOICES.map(c=>(
                   <label key={c.key||"none"} className={"swatch"+(draft.labelColor===c.key?" on":"")}
@@ -369,12 +370,12 @@ export default function ClientsPage(){
             <div className="btns">
               <label className="endCk">
                 <input type="checkbox" checked={draft.closed} onChange={e=>setDraft({...draft, closed:e.target.checked})}/>
-                <span>의뢰종료</span>
+                <span>?섎ː醫낅즺</span>
               </label>
               <div className="spacer"></div>
-              <button className="btn" onClick={close}>닫기</button>
-              {isEdit && <button className="btn danger" onClick={onDelete}>삭제</button>}
-              <button className="btn primary" onClick={onSave}>저장</button>
+              <button className="btn" onClick={close}>?リ린</button>
+              {isEdit && <button className="btn danger" onClick={onDelete}>??젣</button>}
+              <button className="btn primary" onClick={onSave}>???/button>
             </div>
           </div>
         </div>
@@ -414,18 +415,18 @@ export default function ClientsPage(){
         .region,.rooms{white-space:normal;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
         .empty{padding:20px;text-align:center;color:#888}
 
-        /* 의뢰종료 시: 검정 바탕 + 희미한 글자 */
+        /* ?섎ː醫낅즺 ?? 寃??諛뷀깢 + ?щ???湲??*/
         .row.closed{ background:#0b0b0b !important; }
         .row.closed .cell{ color:#c7c7c7; }
 
-        /* 날짜 옆 번호 배지 */
+        /* ?좎쭨 ??踰덊샇 諛곗? */
         .badge{
           display:inline-block;min-width:20px;height:18px;line-height:18px;
           background:#111;color:#fff;border-radius:999px;font-size:11px;font-weight:800;
           margin-right:6px;padding:0 6px;vertical-align:middle;
         }
 
-        /* 모달 */
+        /* 紐⑤떖 */
         .modal{position:fixed;inset:0;background:rgba(0,0,0,.28);display:grid;place-items:center;padding:16px;z-index:40}
         .sheet{width:min(900px,96vw);background:#fff;border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 20px 50px rgba(0,0,0,.25);padding:18px;position:relative}
         .x{position:absolute;right:10px;top:8px;border:1px solid #e5e7eb;background:#fff;border-radius:999px;width:32px;height:32px;font-size:20px;line-height:30px}
@@ -465,7 +466,7 @@ export default function ClientsPage(){
         .endCk{display:inline-flex;gap:6px;align-items:center}
         .endCk input{width:16px;height:16px}
 
-        /* 표시색 선택 스와치 */
+        /* ?쒖떆???좏깮 ?ㅼ?移?*/
         .colorRow{display:flex;gap:8px;flex-wrap:wrap}
         .swatch{
           display:inline-flex;align-items:center;gap:6px;
@@ -478,3 +479,5 @@ export default function ClientsPage(){
     </main>
   );
 }
+
+
