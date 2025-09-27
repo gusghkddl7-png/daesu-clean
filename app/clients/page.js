@@ -158,9 +158,7 @@ export default function ClientsPage(){
   return (
     <main className="wrap">
       <div className="bar">
-        <div className="left"><button className="back" onClick={()=>router.push("/dashboard")}><span className="arrow">??/span> ?ㅻ줈媛湲?/button></div>
-        <div className="center"><div className="title">怨좉컼/臾몄쓽</div></div>
-        <div className="right"><button className="primary" onClick={()=>openNew()}>+ ?깅줉</button></div>
+        <div className="left"><button className="back" onClick={()=><span className="arrow">←</span> 뒤로가기</button></div>
       </div>
 
       <div className="filters">
@@ -478,6 +476,7 @@ export default function ClientsPage(){
     </main>
   );
 }
+
 
 
 
