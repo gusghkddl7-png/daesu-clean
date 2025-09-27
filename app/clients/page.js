@@ -1,5 +1,4 @@
-﻿export const dynamic = 'force-dynamic';
-"use client";
+﻿"use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -8,10 +7,10 @@ const loadClients = () => { try { return JSON.parse(localStorage.getItem("daesu:
 const saveClients  = (arr)=> { try { localStorage.setItem("daesu:clients", JSON.stringify(arr)); } catch {} };
 
 /* constants */
-const STAFFS = ["源遺??,"源怨쇱옣","媛뺤떎??,"?뚯옣","怨듬룞"];
-const GD_REGIONS = ["泥쒗샇??,"?깅궡??,"?붿큿??,"湲몃룞","?붿궗??,"紐낆씪??];
-const SP_REGIONS = ["?좎떎??,"?쇱쟾??,"?띾궔??];
-const ROOM_TYPES = ["?먮８","1.5猷?,"2猷?,"3猷?,"4猷?];
+const STAFFS = [];
+const GD_REGIONS = [];
+const SP_REGIONS = [];
+const ROOM_TYPES = [];
 const PROGRAMS  = ["LH/SH","?덇렇","HF"];
 
 /* ?고븳???붾젅??6媛吏 + ?놁쓬 */
@@ -479,5 +478,6 @@ export default function ClientsPage(){
     </main>
   );
 }
+
 
 

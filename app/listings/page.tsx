@@ -1,6 +1,4 @@
-﻿export const dynamic = 'force-dynamic';
-"use client";
-
+﻿"use client";
 import { useMemo, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -528,5 +526,6 @@ export default function ListingsPage() {
     </main>
   );
 }
+
 
 
