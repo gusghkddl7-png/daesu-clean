@@ -1,6 +1,5 @@
-import { repo } from "../../_lib/repo";
-
+﻿import { NextResponse } from "next/server";
+export const dynamic = "force-dynamic";
 export async function GET() {
-  const list = repo.users.approved().map(u => ({ id: u.id, displayName: u.displayName || u.id }));
-  return Response.json(list);
+  return NextResponse.json({ ok: true, route: "/api/users/approved" });
 }
