@@ -15,13 +15,13 @@ const PROGRAMS  = ["LH/SH","?덇렇","HF"];
 
 /* ?고븳???붾젅??6媛吏 + ?놁쓬 */
 const COLOR_CHOICES = [
-  { key:"",          name:"?놁쓬",      bg:"#ffffff", border:"#e5e7eb" },
-  { key:"#E0F2FE",   name:"?섎뒛",      bg:"#E0F2FE", border:"#bae6fd" }, // sky-100
-  { key:"#DCFCE7",   name:"?곕몢",      bg:"#DCFCE7", border:"#bbf7d0" }, // green-100
-  { key:"#FEF3C7",   name:"?곕끂??,    bg:"#FEF3C7", border:"#fde68a" }, // amber-100
-  { key:"#FFE4E6",   name:"?고븨??,    bg:"#FFE4E6", border:"#fecdd3" }, // rose-100
-  { key:"#F3E8FF",   name:"?곕낫??,    bg:"#F3E8FF", border:"#e9d5ff" }, // violet-100/200
-  { key:"#E5E7EB",   name:"?고쉶??,    bg:"#F3F4F6", border:"#E5E7EB" }, // gray-100
+  { key:"",         name:"없음",       bg:"#ffffff", border:"#e5e7eb" },
+  { key:"#E0F2FE",  name:"하늘",       bg:"#E0F2FE", border:"#bae6fd" }, // sky-100
+  { key:"#DCFCE7",  name:"연두",       bg:"#DCFCE7", border:"#bbf7d0" }, // green-100
+  { key:"#FEF3C7",  name:"앰버",       bg:"#FEF3C7", border:"#fde68a" }, // amber-100
+  { key:"#FFE4E6",  name:"로즈",       bg:"#FFE4E6", border:"#fecdd3" }, // rose-100
+  { key:"#F3E8FF",  name:"바이올렛",   bg:"#F3E8FF", border:"#e9d5ff" }, // violet-100/200
+  { key:"#E5E7EB",  name:"그레이",     bg:"#F3F4F6", border:"#E5E7EB" }  // gray-100
 ];
 
 /* utils */
@@ -478,6 +478,7 @@ export default function ClientsPage(){
     </main>
   );
 }
+
 
 
 
