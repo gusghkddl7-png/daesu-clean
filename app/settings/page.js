@@ -446,10 +446,9 @@ export default function Page() {
                     </div>
                     <div className="item-ops">
                       <button
-                        className="mini"
-                        onClick={()=>approveUser(u.id, nameRefs.current[u.id]?.value)}
-                        disabled={!nameRefs.current[u.id] || !nameRefs.current[u.id].value?.trim()}
-                      >승인</button>
+  className="mini"
+  onClick={()=>approveUser(u.id, nameRefs.current[u.id]?.value)}
+>승인</button>
                       <button className="mini" onClick={()=>rejectUserLocal(u.id)}>거절</button>
                     </div>
                   </div>
