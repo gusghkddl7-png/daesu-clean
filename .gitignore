@@ -33,3 +33,4 @@ dist/
 *.bak
 *auto-bak*
 *backup*
+.vercel

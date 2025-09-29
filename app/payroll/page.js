@@ -7,7 +7,7 @@ const EMP_KEY  = "daesu:payroll:employees";
 const DATA_KEY = "daesu:payroll:data";
 
 /* ===== 유틸 ===== */
-const fmt = (n) => new Intl.NumberFormat().format(n || 0);
+const fmt = (n) => new Intl.NumberFormat().format(Number.isFinite(n) ? n : 0);
 const ymOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 const addMonths = (ym, delta) => { const [y, m] = ym.split("-").map(Number); const d = new Date(y, m - 1 + delta, 1); return ymOf(d); };
 const nextPayDate = (ym) => { const [y, m] = ym.split("-").map(Number); return new Date(y, m, 5); };
@@ -15,7 +15,7 @@ const nextPayDate = (ym) => { const [y, m] = ym.split("-").map(Number); return n
 function loadJSON(key, fb) { try { return JSON.parse(localStorage.getItem(key) || "null") ?? fb; } catch { return fb; } }
 function saveJSON(key, v)   { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} }
 
-/* ✅ payouts(직원별 가져가는 금액) 필드 추가 */
+/* ✅ payouts(직원별 가져가는 금액) 필드 포함 */
 const BASE_MONTH = { deals:[], incomes:[], expenses:[], adjustments:{}, billingRaw:[], payouts:{} };
 function normalizeMonth(raw){
   const r = raw && typeof raw === "object" ? raw : {};
@@ -61,9 +61,8 @@ function useToast(){
   return { push, view };
 }
 
-/* ===== 금액/날짜 포맷 (결제/청구와 동일 로직) ===== */
+/* ===== 금액/날짜 포맷 ===== */
 const fmtMan2 = (n) => Number(n||0).toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const asPlain  = (n) => { const s = Number(n||0).toFixed(2); return s.endsWith(".00") ? String(Math.round(n||0)) : s.replace(/\.?0$/, ""); };
 const fmtDate10 = (iso) => { if (!iso) return "-"; const d = new Date(iso); return isNaN(d.getTime()) ? "-" : d.toISOString().slice(0,10); };
 
 // VAT 계산: amountMan = “만원” 단위
@@ -81,33 +80,27 @@ function deriveVat(amountMan, included) {
   }
 }
 
-/* ===== 결제/청구 → 읽기용 행 매핑 (원본 스키마 직접 사용) ===== */
+/* ===== 결제/청구 → 읽기용 행 매핑 ===== */
 function mapBillingToRows(list){
   return (Array.isArray(list)?list:[]).map((it, idx)=>{
     const preDate = it.datePrelim || it.gaDate || it.preDate || it.preContractDate || "";
-
-    // ✅ 담당: 새 구조(여러명) + 구버전 호환
     const agentLArr = Array.isArray(it.agentL) ? it.agentL : (it.agent ? [it.agent] : []);
     const agentTArr = Array.isArray(it.agentT) ? it.agentT : [];
     const agentLText = agentLArr.length ? agentLArr.join(", ") : "-";
     const agentTText = agentTArr.length ? agentTArr.join(", ") : "-";
-
     const address = it.address || it.addr || "";
-
-    // 결제/청구 테이블의 “계약단계 날짜” 표기와 동일하게(본 / 중 / 잔)
     const phase = [
       it.dateSign    ? `본 ${it.dateSign}`       : "",
       it.dateInterim ? `중 ${it.dateInterim}`    : "",
       it.dateClosing ? `잔/입 ${it.dateClosing}` : "",
     ].filter(Boolean).join(" / ");
 
-    // 임대/임차 금액(‘받을금액’은 부가세 포함 값)
     const lExp = Number(it?.landlord?.expect || 0);
     const tExp = Number(it?.tenant?.expect   || 0);
     const lVat = deriveVat(lExp, true);
     const tVat = deriveVat(tExp, true);
 
-    const feeIncluded = lExp + tExp; // billing의 “중개보수”와 동일(부포 합)
+    const feeIncluded = lExp + tExp; // 부가세 포함 합
     const memo = it.memo || "";
 
     return {
@@ -120,6 +113,19 @@ function mapBillingToRows(list){
       memo
     };
   });
+}
+
+/* ===== CSV ===== */
+function downloadCSV(filename, rows, headers){
+  try{
+    const esc = (s="") => `"${String(s).replace(/"/g,'""')}"`;
+    const head = headers.map(esc).join(",");
+    const body = rows.map(r => headers.map(h=>esc(r[h])).join(",")).join("\n");
+    const blob = new Blob([head+"\n"+body], { type:"text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+    URL.revokeObjectURL(a.href);
+  }catch{}
 }
 
 /* ===== 메인 ===== */
@@ -220,6 +226,37 @@ export default function Page(){
     TABS.push({key:"expense", label:"운영비", desc:"빠른 입력"});
   }
 
+  /* ===== 전월 복사 / CSV ===== */
+  const copyPrevMonth = ()=>{
+    const prev = addMonths(ym, -1);
+    const src = normalizeMonth(data?.[prev]);
+    if (!src || (Object.keys(src.payouts||{}).length===0 && (src.expenses||[]).length===0)){
+      toast.push("전월에 복사할 데이터가 없습니다.");
+      return;
+    }
+    const next = {
+      payouts: { ...(src.payouts||{}) },
+      expenses: (src.expenses||[]).map(e=>({ ...e, id: Math.random().toString(36).slice(2,7) }))
+    };
+    saveMonth(next);
+    toast.push("전월 데이터 복사 완료");
+  };
+
+  const exportPayoutsCSV = ()=>{
+    const rows = Object.entries(month.payouts||{}).map(([empId, amt])=>{
+      const emp = (emps||[]).find(e=>e.id===empId);
+      return { 사번: empId, 이름: emp?.name||"", 직책: emp?.position||"", 금액원: Number(amt||0) };
+    });
+    if (!rows.length){ toast.push("내보낼 급여 데이터가 없습니다."); return; }
+    downloadCSV(`payouts-${ym}.csv`, rows, ["사번","이름","직책","금액원"]);
+  };
+
+  const exportExpensesCSV = ()=>{
+    const rows = (month.expenses||[]).map(e=>({ 분류:e.type||"", 금액원:Number(e.amount||0), 메모:e.memo||"" }));
+    if (!rows.length){ toast.push("내보낼 운영비 데이터가 없습니다."); return; }
+    downloadCSV(`expenses-${ym}.csv`, rows, ["분류","금액원","메모"]);
+  };
+
   /* ===== 렌더 ===== */
   return (
     <main className="wrap">
@@ -230,26 +267,41 @@ export default function Page(){
           {/* 상단바 */}
           <div className="topbar">
             <div className="left">
-              <button className="back" onClick={()=>router.push("/dashboard")}><span className="arrow">←</span> 대시보드</button>
+              <button className="back" onClick={()=>router.push("/dashboard")} aria-label="대시보드로"><span className="arrow">←</span> 대시보드</button>
             </div>
             <div className="center"><div className="title">급여/정산</div></div>
             <div className="right"></div>
           </div>
 
-          {/* 월 선택 / 간단 요약(기존 유지) */}
+          {/* 월 선택 / 요약 */}
           <section className="cardbox">
             <div className="cardtitle">월 선택</div>
             <div className="toolbar">
               <button className="mini" onClick={()=>setYm(addMonths(ym,-1))}>◀ 이전</button>
-              <input className="search" type="month" value={ym} onChange={e=>setYm(e.target.value)} />
+              <input
+                className="search" type="month" value={ym}
+                onKeyDown={(e)=>{ if(e.key==="Enter") e.currentTarget.blur(); }}
+                onChange={e=>setYm(e.target.value)}
+                aria-label="정산 월 선택"
+              />
               <button className="mini" onClick={()=>setYm(addMonths(ym,+1))}>다음 ▶</button>
-              <div className="chip">지급 예정일: <b>{nextPayDate(ym).toLocaleDateString()}</b></div>
+              <div className="chip">지급 예정일: <b>{payDate.toLocaleDateString()}</b></div>
+              {isAdmin && (
+                <>
+                  <button className="mini" onClick={copyPrevMonth}>전월 복사</button>
+                  <button className="mini" onClick={exportPayoutsCSV}>급여 CSV</button>
+                  <button className="mini" onClick={exportExpensesCSV}>운영비 CSV</button>
+                </>
+              )}
             </div>
             <div className="summary">
               <div className="sumbox"><div className="lab">계약건수</div><div className="val">{dealCount}건</div></div>
               <div className="sumbox"><div className="lab">총중개보수(만원)</div><div className="val">{fmtMan2(totalFeesMan)}</div></div>
               <div className="sumbox"><div className="lab">부가세(만원)</div><div className="val">{fmtMan2(totalVATMan)}</div></div>
-              <div className="sumbox"><div className="lab">회사 순수익(원)</div><div className="val">₩ {fmt(netProfit)}</div></div>
+              <div className="sumbox">
+                <div className="lab">회사 순수익(원)</div>
+                <div className="val" style={{color: netProfit<0 ? "#dc2626" : "#2563eb"}}>₩ {fmt(netProfit)}</div>
+              </div>
             </div>
           </section>
 
@@ -262,7 +314,7 @@ export default function Page(){
             ))}
           </section>
 
-          {/* ✅ 대시보드: 5개 요약 + 직원별 가져가는 금액(3명 기준) */}
+          {/* 대시보드(관리자) */}
           {isAdmin && tab==="dash" && (
             <>
               <section className="cardbox">
@@ -272,7 +324,7 @@ export default function Page(){
                   <div className="sumbox"><div className="lab">2) 총 매출</div><div className="val">₩ {fmt(revenueKRW)}</div></div>
                   <div className="sumbox"><div className="lab">3) 총 직원급여</div><div className="val">₩ {fmt(totalPayrollKRW)}</div></div>
                   <div className="sumbox"><div className="lab">4) 총 운영비</div><div className="val">₩ {fmt(totalExpensesKRW)}</div></div>
-                  <div className="sumbox"><div className="lab">5) 순수익(매출-급여-운영비)</div><div className="val">₩ {fmt(netProfit)}</div></div>
+                  <div className="sumbox"><div className="lab">5) 순수익</div><div className="val" style={{color: netProfit<0 ? "#dc2626" : "#2563eb"}}>₩ {fmt(netProfit)}</div></div>
                 </div>
                 <div style={{padding:"8px 12px", color:"var(--muted)"}}>
                   참고) 총중개보수(만원): <b>{fmtMan2(totalFeesMan)}</b> · 부가세(만원): <b>{fmtMan2(totalVATMan)}</b>
@@ -293,11 +345,14 @@ export default function Page(){
                         <input
                           className="search"
                           type="number"
+                          min={0}
                           value={(month.payouts?.[emp.id]??0)}
                           onChange={e=>{
-                            const v = Math.max(0, Math.round(Number(e.target.value||0)));
+                            const vRaw = Number(e.target.value);
+                            const v = Number.isFinite(vRaw) && vRaw>0 ? Math.round(vRaw) : 0;
                             saveMonth({ payouts: { ...(month.payouts||{}), [emp.id]: v }});
                           }}
+                          aria-label={`${emp.name} 금액`}
                         />
                       </div>
                     ))}
@@ -315,7 +370,7 @@ export default function Page(){
             </>
           )}
 
-          {/* 결제/청구 원본 (읽기 전용) — billing 표와 동일 레이아웃 */}
+          {/* 결제/청구 원본(읽기) */}
           {tab==="deals" && (
             <section className="cardbox wide">
               <div className="cardtitle">결제/청구 원본 (읽기 전용)</div>
@@ -323,14 +378,14 @@ export default function Page(){
               <div className="tbl-wrap">
                 <table className="tbl">
                   <colgroup>
-                    <col style={{width:"80px"}} />   {/* 가계약일 */}
-                    <col style={{width:"90px"}} />   {/* 담당 */}
-                    <col style={{width:"90px"}} />   {/* 주소 */}
-                    <col style={{width:"180px"}} />  {/* 계약단계 날짜 */}
-                    <col style={{width:"150px"}} />  {/* 임대인(중개보수) */}
-                    <col style={{width:"150px"}} />  {/* 임차인(중개보수) */}
-                    <col style={{width:"90px"}} />   {/* 중개보수 */}
-                    <col style={{width:"460px"}} />  {/* 메모 */}
+                    <col style={{width:"80px"}} />
+                    <col style={{width:"90px"}} />
+                    <col style={{width:"90px"}} />
+                    <col style={{width:"180px"}} />
+                    <col style={{width:"150px"}} />
+                    <col style={{width:"150px"}} />
+                    <col style={{width:"90px"}} />
+                    <col style={{width:"460px"}} />
                   </colgroup>
                   <thead>
                     <tr>
@@ -350,7 +405,6 @@ export default function Page(){
                         <td colSpan={8} className="empty">해당 월 결제/청구 데이터가 없습니다.</td>
                       </tr>
                     )}
-
                     {billingRows.map((r)=>(
                       <tr key={r.id}>
                         <td className="cell">{fmtDate10(r.preDate) || "-"}</td>
@@ -401,7 +455,7 @@ export default function Page(){
             </section>
           )}
 
-          {/* 운영비 — 간단형 (기존 유지) */}
+          {/* 운영비 — 간단형 */}
           {isAdmin && tab==="expense" && (
             <section className="cardbox">
               <div className="cardtitle">운영비</div>
@@ -411,12 +465,14 @@ export default function Page(){
                 </div>
                 <div className="tbody">
                   {(month.expenses||[]).map(row=>(
-                    <div key={row.id||row.type} className="row" style={{gridTemplateColumns:"1fr 1fr 1fr auto"}}>
+                    <div key={row.id||row.type+Math.random()} className="row" style={{gridTemplateColumns:"1fr 1fr 1fr auto"}}>
                       <select className="search" value={row.type} onChange={e=>{
                         row.type = e.target.value; saveMonth({ expenses:[...month.expenses] });
                       }}>{EXPENSE_TYPES.map(x=><option key={x} value={x}>{x}</option>)}</select>
-                      <input className="search" type="number" value={row.amount||0} onChange={e=>{
-                        row.amount=Number(e.target.value||0); saveMonth({ expenses:[...month.expenses] });
+                      <input className="search" type="number" min={0} value={row.amount||0} onChange={e=>{
+                        const vRaw = Number(e.target.value);
+                        row.amount = Number.isFinite(vRaw) && vRaw>0 ? Math.round(vRaw) : 0;
+                        saveMonth({ expenses:[...month.expenses] });
                       }}/>
                       <input className="search" placeholder="메모" value={row.memo||""} onChange={e=>{
                         row.memo=e.target.value; saveMonth({ expenses:[...month.expenses] });
@@ -444,7 +500,7 @@ export default function Page(){
       <style jsx>{`
         .wrap{min-height:100svh;background:var(--bg);color:var(--fg);padding:12px}
         .topbar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin-bottom:14px}
-        .left{justify-self:start}.center{justify-self:center}.right{justify-self:end}
+        .left{justify-self:start}.center{justify-self:center}.right{justify-self=end}
         .title{font-weight:900}
         .back{display:inline-flex;gap:8px;align-items:center;border:1px solid var(--border);background:var(--card);border-radius:10px;padding:8px 12px}
 
@@ -472,27 +528,27 @@ export default function Page(){
         .ops{display:flex;gap:6px;justify-content:flex-end}
         .mini{border:1px solid var(--border);background:var(--card);border-radius:8px;padding:6px 8px;cursor:pointer}
 
-        /* ✅ billing과 동일한 테이블 톤/간격/행높이 */
+        /* billing과 동일한 테이블 톤/간격/행높이 */
         .tbl-wrap{overflow:auto;border-top:1px solid var(--border)}
         .tbl{
           width:100%;
-          min-width:1300px;            /* billing: min-w-[1300px] */
-          table-layout:fixed;          /* billing: table-fixed */
-          font-size:14px;              /* billing: text-sm */
+          min-width:1300px;
+          table-layout:fixed;
+          font-size:14px;
           border-collapse:separate;
           border-spacing:0;
         }
-        .tbl thead tr{ background:#f3f4f6; } /* billing: bg-gray-100 */
+        .tbl thead tr{ background:#f3f4f6; }
         .tbl th, .tbl td{
-          padding:0 12px;              /* billing: px-3 */
-          height:60px;                 /* billing: ROW_H = 60 */
+          padding:0 12px;
+          height:60px;
           border-bottom:1px solid var(--border);
           text-align:left;
           vertical-align:middle;
         }
         .tbl td.pre{ white-space:pre-line; }
         .tbl td.empty{ text-align:center; color:#6b7280; padding:24px 0; height:auto; }
-        .tbl tbody tr:hover{ background:#f9fafb; } /* hover 효과(선택) */
+        .tbl tbody tr:hover{ background:#f9fafb; }
 
         .ellipsis{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .sub{ font-size:11px; color:#6b7280; }

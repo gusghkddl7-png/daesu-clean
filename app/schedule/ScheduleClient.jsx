@@ -40,19 +40,49 @@ function sortDay(arr){
   });
 }
 
+// 서버 연동 유틸
+async function apiGetAll(){
+  const res = await fetch("/api/schedule", { cache:"no-store" });
+  if(!res.ok) throw new Error("일정 목록을 불러오지 못했습니다.");
+  return await res.json();
+}
+async function apiUpsert(item){
+  const res = await fetch("/api/schedule", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify(item),
+  });
+  if(!res.ok) throw new Error("저장에 실패했습니다.");
+  return await res.json();
+}
+
 export default function ScheduleClient(){
   const router = useRouter();
   const [cursor,setCursor] = useState(()=>{ const n=new Date(); return new Date(n.getFullYear(),n.getMonth(),1); });
   const [events,setEvents] = useState([]);
   const [ready,setReady]   = useState(false);
+  const [loading,setLoading] = useState(false);
 
-  useEffect(()=>{ // 로컬 일정 로드 + 페이드인
+  // 최초 로드: 서버에서 가져오고, 로컬에도 캐시(있으면 먼저 보여주기)
+  useEffect(()=>{
     try{
-      const saved = JSON.parse(localStorage.getItem("daesu:events")||"[]");
-      setEvents(Array.isArray(saved)? saved.map(e=>({ pinned:false, ...e })) : []);
+      const cached = JSON.parse(localStorage.getItem("daesu:events")||"[]");
+      if(Array.isArray(cached)) setEvents(cached.map(e=>({ pinned:false, ...e })));
     }catch{}
-    const t = setTimeout(()=>setReady(true), 0);
-    return ()=>clearTimeout(t);
+    (async()=>{
+      try{
+        setLoading(true);
+        const list = await apiGetAll();
+        setEvents(Array.isArray(list)? list.map(e=>({ pinned:false, ...e })) : []);
+        try{ localStorage.setItem("daesu:events", JSON.stringify(list)); }catch{}
+      }catch(e){
+        console.error(e);
+        alert("서버에서 일정 목록을 가져오지 못했습니다.");
+      }finally{
+        setReady(true);
+        setLoading(false);
+      }
+    })();
   },[]);
 
   const emptyDraft = { id:"", date:"", type:"투어", staff:"", time:"", phone4:"", nickname:"", memo:"", canceled:false, pinned:false };
@@ -76,14 +106,14 @@ export default function ScheduleClient(){
     const key  = ymd(date);
     const other = d<=0 || d>last.getDate();
     const list = other ? [] : sortDay(
-      (events||[]).filter(ev=>ev.date===key)
+      (events||[]).filter(ev=>ev.date===key && !ev.__deleted)
     );
     const holiday = other ? null : HOLIDAYS_2025[key];
     const isToday = !other && key===todayKey;
     return { date, key, other, events:list, holiday, dow:i%7, isToday };
   }),[y,m,events,blanks,cells,last,todayKey]);
 
-  const saveAll = (arr)=>{ setEvents(arr); try{ localStorage.setItem("daesu:events", JSON.stringify(arr)); }catch{} };
+  const saveCache = (arr)=>{ try{ localStorage.setItem("daesu:events", JSON.stringify(arr)); }catch{} };
   const move = (delta)=>setCursor(new Date(y,m+delta,1));
   const openNew  = (date)=>{ setDraft({ ...emptyDraft, id:"e"+Date.now(), date }); setIsEdit(false); setOpen(true); };
   const openEdit = (ev)=>{ setDraft({ ...emptyDraft, ...ev }); setIsEdit(true); setOpen(true); };
@@ -96,19 +126,63 @@ export default function ScheduleClient(){
     setTimeout(()=>openNew(ymd(n)), 0);
   };
 
-  const onSave = ()=>{
+  const onSave = async ()=>{
+    if(!draft.date) return alert("날짜를 입력해 주세요.");
     if(!draft.type || !typeList.includes(draft.type)) return alert("유형을 선택해 주세요.");
     if(!draft.staff) return alert("담당자를 선택해 주세요.");
     if(!draft.time)  return alert("시간을 선택해 주세요.");
     if(draft.phone4 && !/^\d{4}$/.test(draft.phone4)) return alert("전화번호 뒷자리(4자리)를 입력해 주세요.");
-    const norm = { ...draft, pinned: !!draft.pinned, canceled: !!draft.canceled };
-    const next = isEdit ? events.map(e=>e.id===norm.id? norm : e) : [...events, norm];
-    saveAll(next); close();
+
+    const norm = {
+      ...draft,
+      id: draft.id || ("t"+Date.now()),
+      pinned: !!draft.pinned,
+      canceled: !!draft.canceled,
+      __deleted: false,
+    };
+
+    // 낙관적 업데이트
+    const optimistic = (isEdit
+      ? events.map(e=>e.id===norm.id? norm : e)
+      : [...events, norm]);
+    setEvents(optimistic); saveCache(optimistic);
+
+    try{
+      setLoading(true);
+      await apiUpsert(norm);
+      // 서버 반영 후 재동기화
+      const fresh = await apiGetAll();
+      setEvents(fresh); saveCache(fresh);
+      close();
+    }catch(e){
+      alert("저장에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+      console.error(e);
+    }finally{
+      setLoading(false);
+    }
   };
-  const onDelete = ()=>{
+
+  // 삭제는 아직 서버에 DELETE 엔드포인트가 없으므로 '소프트 삭제'로 처리(숨김 + 서버에도 반영)
+  const onDelete = async ()=>{
     if(!isEdit) return;
     if(!confirm("삭제하시겠습니까?")) return;
-    saveAll(events.filter(e=>e.id!==draft.id)); close();
+
+    const soft = { ...draft, canceled: true, pinned: false, __deleted: true, memo: draft.memo||"" };
+    const optimistic = events.map(e=>e.id===soft.id? soft : e);
+    setEvents(optimistic); saveCache(optimistic);
+
+    try{
+      setLoading(true);
+      await apiUpsert(soft); // 서버에는 __deleted=true로 저장 (UI에서는 숨김)
+      const fresh = await apiGetAll();
+      setEvents(fresh); saveCache(fresh);
+      close();
+    }catch(e){
+      alert("삭제(숨김) 반영에 실패했습니다.");
+      console.error(e);
+    }finally{
+      setLoading(false);
+    }
   };
 
   return (
@@ -121,7 +195,10 @@ export default function ScheduleClient(){
         </div>
         <div className="center">
           <button className="nav" onClick={()=>move(-1)} aria-label="이전 달">◀</button>
-          <div className="title">{y} 년 {String(m+1).padStart(2,"0")} 월</div>
+          <div className="title">
+            {y} 년 {String(m+1).padStart(2,"0")} 월
+            {loading && <span className="spinner" aria-label="로딩중">⏳</span>}
+          </div>
           <button className="nav" onClick={()=>move(1)} aria-label="다음 달">▶</button>
         </div>
         <div className="right">
@@ -141,7 +218,7 @@ export default function ScheduleClient(){
             <div key={i} className={cls.join(" ")}>
               <div className="chead">
                 <span className={`num${d.isToday ? " today" : ""}`}>{d.date.getDate()}</span>
-                <button className="add" onClick={()=>openNew(d.key)}>+ 등록</button>
+                {!d.other && <button className="add" onClick={()=>openNew(d.key)}>+ 등록</button>}
               </div>
               {d.holiday && <div className="hname">{d.holiday}</div>}
               <div className="items">
@@ -204,7 +281,6 @@ export default function ScheduleClient(){
               <textarea rows={3} value={draft.memo} onChange={e=>setDraft({...draft, memo:e.target.value})}/>
             </div>
 
-            {/* 취소됨 옆에 핀 고정 */}
             <div className="toggleRow">
               <label className="toggle">
                 <input type="checkbox" checked={!!draft.canceled} onChange={e=>setDraft({...draft, canceled:e.target.checked})}/>
@@ -220,7 +296,7 @@ export default function ScheduleClient(){
               <button className="btn ghost" onClick={close}>닫기</button>
               <div className="spacer"></div>
               {isEdit && <button className="btn danger" onClick={onDelete}>삭제</button>}
-              <button className="btn primary" onClick={onSave}>저장</button>
+              <button className="btn primary" onClick={onSave} disabled={loading}>{loading ? "저장중..." : "저장"}</button>
             </div>
           </div>
         </div>
@@ -239,6 +315,7 @@ export default function ScheduleClient(){
         .back{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;background:#fff;border:1px solid #e5e7eb;box-shadow:0 2px 8px rgba(0,0,0,.04);cursor:pointer;font-weight:700;color:#111}
         .back .arrow{font-weight:900}
         .back:hover{border-color:#d1d5db;transform:translateY(-1px)}
+        .spinner{margin-left:8px;font-size:13px;opacity:.7}
 
         .head,.grid{width:100%;max-width:none;margin:0 auto}
         .head{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}

@@ -1,4 +1,6 @@
+// app/settings/page.js
 "use client";
+
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
@@ -25,6 +27,17 @@ async function apiPost(url, body, opts = {}) {
     return await r.json();
   } catch { return null; }
 }
+
+/* === 비교/정규화/중복 방지 유틸 === */
+const norm = (s) => (s || "").trim().toLowerCase();            // 식별자 비교용
+const dedupeById = (arr) => {                                   // id/email 기준 중복 제거
+  const seen = new Set(); const out = [];
+  for (const x of arr || []) {
+    const k = norm(x.id || x.email);
+    if (!seen.has(k)) { seen.add(k); out.push({ ...x, id: x.id || x.email }); }
+  }
+  return out;
+};
 
 /* ========= 상단 타일(8개) ========= */
 const TABS = [
@@ -93,16 +106,10 @@ function applyDensityToDOM(density) {
 /* ========= 보조: 저장/불러오기 ========= */
 const SHORTCUTS_KEY = "daesu:shortcuts";
 const STARTUP_KEY   = "daesu:startup";
+const ADMINS_KEY    = "daesu:admins"; // 승인자 중 관리자 id 저장
 
-const DEFAULT_SHORTCUTS = {
-  submitWithEnter: true,
-  closeWithEsc: true,
-  autofocusSearch: true,
-};
-const DEFAULT_STARTUP = {
-  home: "/dashboard",
-  autoOpen: [],
-};
+const DEFAULT_SHORTCUTS = { submitWithEnter: true, closeWithEsc: true, autofocusSearch: true };
+const DEFAULT_STARTUP   = { home: "/dashboard", autoOpen: [] };
 
 /* ========= 공지 팝업 로컬키 ========= */
 const NOTICE_LAST_SEEN_ID = "daesu:notices:lastSeenId";
@@ -112,7 +119,9 @@ export default function Page() {
   const router  = useRouter();
   const toast   = useToast();
 
-  /* 권한(로컬 세션) */
+  /* 깜빡임 완화 & 권한 */
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(()=>{ setHydrated(true); },[]);
   const [role, setRole] = useState("guest");
   useEffect(() => {
     try {
@@ -135,18 +144,8 @@ export default function Page() {
       applyThemeToDOM(m); applyDensityToDOM(d);
     } catch {}
   }, []);
-  function changeTheme(m){
-    setThemeMode(m);
-    try{ localStorage.setItem(THEME_KEY,m);}catch{}
-    applyThemeToDOM(m);
-    toast.push(m==="system"?"시스템 테마 사용":`${m==="dark"?"다크":"라이트"} 테마 적용`);
-  }
-  function changeDensity(d){
-    setDensity(d);
-    try{ localStorage.setItem(DENSITY_KEY,d);}catch{}
-    applyDensityToDOM(d);
-    toast.push(d==="compact"?"컴팩트 모드":"코지 모드");
-  }
+  function changeTheme(m){ setThemeMode(m); try{ localStorage.setItem(THEME_KEY,m);}catch{}; applyThemeToDOM(m); toast.push(m==="system"?"시스템 테마 사용":`${m==="dark"?"다크":"라이트"} 테마 적용`); }
+  function changeDensity(d){ setDensity(d); try{ localStorage.setItem(DENSITY_KEY,d);}catch{}; applyDensityToDOM(d); toast.push(d==="compact"?"컴팩트 모드":"코지 모드"); }
 
   /* === users 폴백 === */
   const [q, setQ] = useState("");
@@ -157,46 +156,96 @@ export default function Page() {
   const [pending, setPending] = useState([]);
   const [approved, setApproved] = useState([]);
   const [loadingPeople, setLoadingPeople] = useState(false);
+
+  // API 연결성 + 실제 콘텐츠 존재 여부
   const [apiAvailable, setApiAvailable] = useState(false);
+  const [apiHasPending, setApiHasPending] = useState(false);
+  const [apiHasApproved, setApiHasApproved] = useState(false);
 
-  // 각 대기 사용자 행의 "담당자 이름" 입력칸을 안정적으로 참조
-  const nameRefs = useRef({}); // { [ident(email|id)]: HTMLInputElement }
+  // 관리자 집합
+  const [adminIds, setAdminIds] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(ADMINS_KEY) || "[]")); }
+    catch { return new Set(); }
+  });
+  function persistAdmins(setObj){ try{ localStorage.setItem(ADMINS_KEY, JSON.stringify(Array.from(setObj))); }catch{} }
 
+  // 각 대기 사용자 행의 "담당자 이름" 입력칸 참조
+  const nameRefs = useRef({}); // { [ident]: HTMLInputElement }
+
+  // 다중 클릭 방지
+  const [busyIds, setBusyIds] = useState(new Set());
+
+  /** === 핵심: 로딩 로직(이제 API가 빈 배열이어도 그대로 반영) === */
   async function loadPeople() {
     setLoadingPeople(true);
-    const p = await apiGet("/api/users/pending", { headers: { "x-role": "admin" } });
-    const a = await apiGet("/api/users/approved");
-    if (Array.isArray(p) || Array.isArray(a)) {
-      setApiAvailable(true);
-      setPending(Array.isArray(p) ? p : []);
-      setApproved(Array.isArray(a) ? a : []);
-      setLoadingPeople(false);
-      return;
-    }
-    // 로컬 폴백
+
+    // 로컬 폴백 준비
     const local = loadUsers();
-    const p2 = local
-      .filter(u => (u.status||"pending")==="pending")
-      .map(u=>({ id:u.id, email:u.id+"@example.com", displayName:u.name||"", status:u.status||"pending", createdAt:new Date().toISOString() }));
-    const a2 = local
-      .filter(u => (u.status||"")==="approved")
-      .map(u=>({ id:u.id, displayName:u.name||u.id }));
-    setApiAvailable(false);
-    setPending(p2);
-    setApproved(a2);
+    const pLocal = local
+      .filter(u => (u.status || "pending") === "pending")
+      .map(u => ({
+        id: u.id,
+        email: u.email || (u.id ? `${u.id}@example.com` : undefined),
+        displayName: u.name || "",
+        status: "pending",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }));
+    const aLocal = local
+      .filter(u => (u.status || "") === "approved")
+      .map(u => ({ id: u.id, email: u.email, displayName: u.name || u.id, status: "approved" }));
+
+    // API 병렬 호출
+    const [pRes, aRes] = await Promise.all([
+      apiGet("/api/users/pending",  { headers: { "x-role": "admin" } }),
+      apiGet("/api/users/approved", { headers: { "x-role": "admin" } }),
+    ]);
+
+    const reachable = (pRes !== null) || (aRes !== null);
+    setApiAvailable(reachable);
+
+    // ✅ 응답이 배열이면(빈 배열 포함) 그대로 덮어씀
+    if (Array.isArray(pRes)) {
+      setPending(pRes);
+      setApiHasPending(pRes.length > 0);
+    } else {
+      setPending(pLocal);
+      setApiHasPending(false);
+    }
+
+    if (Array.isArray(aRes)) {
+      const normA = aRes.map(x => ({ ...x, id: x.id || x.email }));
+      setApproved(dedupeById(normA));
+      setApiHasApproved(aRes.length > 0);
+    } else {
+      setApproved(dedupeById(aLocal));
+      setApiHasApproved(false);
+    }
+
     setLoadingPeople(false);
   }
   useEffect(() => { loadPeople(); }, []);
 
-  // email 우선, 없으면 id로 승인
+  // email 우선, 없으면 id로 승인 — 낙관적 업데이트 + 중복 방지 + 실패 롤백
   async function approveUser(idOrEmail, displayNameRaw){
     const displayName = (displayNameRaw||"").trim();
     if (!displayName) { toast.push("담당자 이름을 입력하세요","error"); return; }
 
-    // 서버가 email을 요구하므로 우선 email을 전송
+    const raw = (idOrEmail||"").trim();
+    const key = norm(raw);
+
+    if (busyIds.has(key)) return;
+    setBusyIds(prev => { const n = new Set(prev); n.add(key); return n; });
+
     const payload = { displayName };
-    if (typeof idOrEmail === "string" && idOrEmail.includes("@")) payload.email = idOrEmail;
-    else payload.id = idOrEmail;
+    if (raw.includes("@")) payload.email = raw; else payload.id = raw;
+
+    // 낙관적 업데이트
+    const prevPending = pending;
+    const prevApproved = approved;
+
+    setPending(p => (p||[]).filter(u => norm(u.email || u.id) !== key));
+    setApproved(a => dedupeById([{ id: raw, email: raw.includes("@")?raw:undefined, displayName, status:"approved", createdAt:new Date().toISOString() }, ...(a||[])]));
 
     try{
       if (apiAvailable) {
@@ -204,23 +253,43 @@ export default function Page() {
         if (!res || res.ok === false) throw 0;
       } else {
         const next = users.map(x =>
-          (x.id===idOrEmail || x.email===idOrEmail) ? { ...x, status:"approved", name: displayName || x.name } : x
+          (norm(x.id)===key || norm(x.email)===key) ? { ...x, status:"approved", name: displayName || x.name } : x
         );
         setUsers(next); saveUsers(next);
       }
-      if (nameRefs.current[idOrEmail]) nameRefs.current[idOrEmail].value = "";
+
+      if (nameRefs.current[raw]) nameRefs.current[raw].value = "";
       toast.push("승인 완료");
+
+      // 새 데이터 동기화
       await loadPeople();
-    }catch{ toast.push("승인 실패", "error"); }
+      setPending(p => (p||[]).filter(u => norm(u.email || u.id) !== key));
+      setApproved(a => dedupeById(a));
+    }catch{
+      // 실패 시 롤백
+      setPending(prevPending);
+      setApproved(prevApproved);
+      toast.push("승인 실패","error");
+    } finally {
+      setBusyIds(prev => { const n=new Set(prev); n.delete(key); return n; });
+    }
   }
 
+  // 관리자 토글 (로컬 상태)
+  function toggleAdmin(id){
+    setAdminIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      persistAdmins(next);
+      return next;
+    });
+    toast.push("권한 변경");
+  }
+
+  // 로컬-only 조작들
   function rejectUserLocal(id){
     const next = users.map(x => x.id===id ? { ...x, status:"rejected" } : x);
     setUsers(next); saveUsers(next); loadPeople(); toast.push("거절 처리됨");
-  }
-  function toggleAdminLocal(u){
-    const next = users.map(x => x.id===u.id ? { ...x, role:(x.role==="admin"?"user":"admin") } : x);
-    setUsers(next); saveUsers(next); loadPeople(); toast.push("권한 변경");
   }
 
   const filteredUsers = useMemo(()=>{
@@ -288,7 +357,7 @@ export default function Page() {
     );
   }, [notices, nSearch]);
 
-  /* === 공지 팝업: 로그인 후 자동 노출 === */
+  /* === 공지 팝업 === */
   const [popupNotice, setPopupNotice] = useState(null);
   useEffect(()=>{
     if (!Array.isArray(notices) || notices.length===0) return;
@@ -296,6 +365,7 @@ export default function Page() {
     const pick = (pinned.length ? pinned : notices)
       .slice().sort((a,b)=> new Date(b.createdAt)-new Date(a.createdAt))[0];
     if (!pick) return;
+    if (!hydrated) return;
 
     try {
       const seenId = localStorage.getItem(NOTICE_LAST_SEEN_ID) || "";
@@ -307,7 +377,7 @@ export default function Page() {
     } catch {}
 
     setPopupNotice(pick);
-  }, [notices]);
+  }, [notices, hydrated]);
 
   function closeNoticePopup(){
     try{
@@ -325,16 +395,18 @@ export default function Page() {
   }, [popupNotice]);
 
   /* === 단축키 === */
-  const [shortcuts, setShortcuts] = useState(DEFAULT_SHORTCUTS);
-  useEffect(()=>{ try{ setShortcuts(JSON.parse(localStorage.getItem(SHORTCUTS_KEY)||"null")||DEFAULT_SHORTCUTS);}catch{} },[]);
+  const [shortcuts, setShortcuts] = useState(() => {
+    try{ return JSON.parse(localStorage.getItem(SHORTCUTS_KEY)||"null")||DEFAULT_SHORTCUTS;}catch{ return DEFAULT_SHORTCUTS; }
+  });
   function saveShortcuts(next){ setShortcuts(next); try{ localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(next)); }catch{}; toast.push("단축키 설정 저장"); }
 
   /* === 시작화면 === */
-  const [startup, setStartup] = useState(DEFAULT_STARTUP);
-  useEffect(()=>{ try{ setStartup(JSON.parse(localStorage.getItem(STARTUP_KEY)||"null")||DEFAULT_STARTUP);}catch{} },[]);
+  const [startup, setStartup] = useState(() => {
+    try{ return JSON.parse(localStorage.getItem(STARTUP_KEY)||"null")||DEFAULT_STARTUP;}catch{ return DEFAULT_STARTUP; }
+  });
   function saveStartup(next){ setStartup(next); try{ localStorage.setItem(STARTUP_KEY, JSON.stringify(next)); }catch{}; toast.push("시작화면 설정 저장"); }
 
-  /* === 스토리지/백업 === */
+  /* === 스토리지/백업 유틸 === */
   function lsSize() {
     try {
       let bytes = 0;
@@ -378,6 +450,9 @@ export default function Page() {
   }
 
   /* ===== 권한 없는 화면 ===== */
+  if (!hydrated) {
+    return <style jsx global>{STYLES}</style>;
+  }
   if (role !== "admin") {
     return (
       <main className="wrap">
@@ -439,7 +514,7 @@ export default function Page() {
                       </div>
                       <div className="item-edit">
                         <input
-                          ref={(el) => { if (el) nameRefs.current[ident] = el; }}
+                          ref={(el) => { if (el) { nameRefs.current[ident] = el; } }}
                           className="search"
                           placeholder="담당자 이름"
                           defaultValue={u.displayName||""}
@@ -455,7 +530,11 @@ export default function Page() {
                         <button
                           className="mini"
                           onClick={()=>approveUser(ident, nameRefs.current[ident]?.value)}
-                          disabled={!nameRefs.current[ident] || !nameRefs.current[ident].value?.trim()}
+                          disabled={
+                            !nameRefs.current[ident] ||
+                            !nameRefs.current[ident].value?.trim() ||
+                            busyIds.has(norm(ident))
+                          }
                         >승인</button>
                         <button className="mini" onClick={()=>rejectUserLocal(u.id)}>거절</button>
                       </div>
@@ -469,21 +548,29 @@ export default function Page() {
           <section className="cardbox">
             <div className="cardtitle">승인된 직원 (담당자)</div>
             {approved.length===0 ? <div className="empty">아직 승인된 직원이 없습니다.</div> :
-              <ul className="gridlist">{approved.map(a=>(
-                <li key={a.id} className="chiprow">
-                  <span className="name">{a.displayName || a.id}</span>
-                  <div className="ops">
-                    <span className="meta">{a.id}</span>
-                    <button className="mini" onClick={()=>toggleAdminLocal({id:a.id, role:"user"})}>관리자 지정/해제</button>
-                  </div>
-                </li>
-              ))}</ul>}
+              <ul className="flatlist">
+                {approved.map(a=>{
+                  const isAdmin = adminIds.has(a.id);
+                  return (
+                    <li key={a.id} className="row">
+                      <span className="name">{a.displayName || a.id}</span>
+                      <span className="sep">—</span>
+                      <span className="meta">{a.id}</span>
+                      <span className={`adminchip ${isAdmin?"on":""}`}>{isAdmin?"관리자: 켜짐":"관리자: 꺼짐"}</span>
+                      <button className={`mini ${isAdmin?"on":""}`} onClick={()=>toggleAdmin(a.id)}>
+                        {isAdmin?"관리자 해제":"관리자 지정"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            }
           </section>
 
-          {/* 로컬 사용자 목록: API 연결 시 숨김 */}
-          {!apiAvailable && (
+          {/* 로컬 사용자 목록: API가 비어있을 때만 보조 표시 */}
+          {(!apiHasPending && !apiHasApproved) && (
             <section className="cardbox">
-              <div className="cardtitle">로컬 사용자 목록 (간단)</div>
+              <div className="cardtitle">로컬 사용자 목록 (보조)</div>
               <div style={{padding:"var(--pad)"}}>
                 <input className="search" placeholder="아이디/이름/전화 검색" value={q} onChange={e=>setQ(e.target.value)} />
               </div>
@@ -500,11 +587,11 @@ export default function Page() {
                         const next=users.map(x=>x.id===u.id?{...x,status:"rejected"}:x);
                         setUsers(next); saveUsers(next); loadPeople();
                       }}>거절</button>
-                      <button className="mini" onClick={()=>toggleAdminLocal(u)}>{u.role==="admin"?"관리자 해제":"관리자 지정"}</button>
+                      <button className="mini" onClick={()=>toggleAdmin(u.id)}>{adminIds.has(u.id)?"관리자 해제":"관리자 지정"}</button>
                     </div>
                   </div>
                 ))}
-                {!filteredUsers.length && <div className="empty">데이터가 없습니다.</div>}
+                {!filteredUsers.length && <div className="empty">로컬 데이터가 없습니다.</div>}
               </div>
             </section>
           )}
@@ -669,9 +756,9 @@ export default function Page() {
                   <label key={key} style={{display:"inline-flex",gap:6,alignItems:"center",border:"1px solid var(--border)",borderRadius:8,padding:"6px 10px",background:"var(--chip-bg)"}}>
                     <input
                       type="checkbox"
-                      checked={startup.autoOpen.includes(key)}
+                      checked={startup.autoOpen?.includes(key)}
                       onChange={e=>{
-                        const set = new Set(startup.autoOpen);
+                        const set = new Set(startup.autoOpen||[]);
                         e.target.checked ? set.add(key) : set.delete(key);
                         saveStartup({ ...startup, autoOpen:[...set] });
                       }}
@@ -776,12 +863,9 @@ const STYLES = `
 
   .info{max-width:1080px;margin:0 auto 8px auto;padding:0 12px}
   .chip{display:inline-block;font-size:12px;border:1px solid var(--border);border-radius:999px;padding:4px 8px;background:var(--chip-bg)}
+
   .cardbox{max-width:1080px;margin:0 auto 12px auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--card);overflow:hidden}
   .cardtitle{font-weight:800;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--card-contrast)}
-  .gridlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:var(--gap);padding:10px}
-  .chiprow{border:1px solid var(--border);border-radius:10px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;background:var(--card)}
-  .chiprow .name{font-weight:700}.chiprow .meta{font-size:11px;color:var(--muted)}
-  .chiprow .ops{display:flex;gap:6px;align-items:center}
 
   .list{display:flex;flex-direction:column}
   .item{display:grid;grid-template-columns:1.3fr 1fr auto;gap:var(--gap);padding:12px;border-bottom:1px solid var(--border);align-items:center}
@@ -789,6 +873,20 @@ const STYLES = `
   .item-main .muted{font-size:12px;color:var(--muted)}
   .item-edit{display:flex;align-items:center}
   .item-ops{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+
+  /* 승인 목록: 한 줄형 */
+  .flatlist{list-style:none;margin:0;padding:10px;display:flex;flex-direction:column;gap:8px}
+  .flatlist .row{display:flex;gap:10px;align-items:center;justify-content:flex-start;border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:var(--card)}
+  .flatlist .name{font-weight:800}
+  .flatlist .sep{opacity:.5}
+  .flatlist .meta{font-size:12px;color:var(--muted)}
+  .adminchip{margin-left:auto;border:1px solid var(--border);border-radius:999px;padding:4px 8px;font-size:12px;background:var(--chip-bg)}
+  .adminchip.on{border-color:transparent;background:var(--accent);color:#fff}
+
+  .gridlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:var(--gap);padding:10px}
+  .chiprow{border:1px solid var(--border);border-radius:10px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;background:var(--card)}
+  .chiprow .name{font-weight:700}.chiprow .meta{font-size:11px;color:var(--muted)}
+  .chiprow .ops{display:flex;gap:6px;align-items:center}
 
   .search{border:1px solid var(--border);border-radius:10px;padding:8px 10px;width:100%;background:var(--card);color:var(--fg)}
   .mini{border:1px solid var(--border);background:var(--card);border-radius:8px;padding:6px 8px;cursor:pointer;color:var(--fg)}

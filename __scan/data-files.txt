@@ -1,9 +1,0 @@
-﻿
-FullName                                              Length
---------                                              ------
-C:\Users\대수\Downloads\daesu-clean\data\billing.json     5495
-C:\Users\대수\Downloads\daesu-clean\data\clients.json      607
-C:\Users\대수\Downloads\daesu-clean\data\inquiries.json    715
-C:\Users\대수\Downloads\daesu-clean\data\users.json          2
-
-

@@ -1,0 +1,23 @@
+﻿[
+    {
+        "createdAt":  "2025-09-29T06:24:57.386Z",
+        "displayName":  "ê¹ë¯¸ë\u0085",
+        "email":  "dhwlddj@example.com",
+        "id":  "dhwlddj@example.com",
+        "status":  "approved"
+    },
+    {
+        "createdAt":  "2025-09-29T06:24:55.550Z",
+        "displayName":  "ë°íí©",
+        "email":  "ë°íí©@example.com",
+        "id":  "ë°íí©@example.com",
+        "status":  "approved"
+    },
+    {
+        "email":  "new@company.com",
+        "createdAt":  "2025-09-29T05:07:26.087Z",
+        "displayName":  "í\u0085ì¤í¸ë´ë¹",
+        "status":  "approved",
+        "id":  "new@company.com"
+    }
+]
