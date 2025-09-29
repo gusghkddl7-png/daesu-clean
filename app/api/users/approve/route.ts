@@ -3,41 +3,32 @@ import { NextResponse } from "next/server";
 import { MongoClient } from "mongodb";
 
 let client: MongoClient | null = null;
-async function getDb() {
+async function db() {
   if (!client) {
     client = new MongoClient(process.env.MONGODB_URI!);
     await client.connect();
   }
-  return client.db(process.env.MONGODB_DB);
+  return client.db(process.env.MONGODB_DB || "daesu-clean-2");
 }
 
 export async function POST(req: Request) {
+  // 간단 권한 체크
+  if (req.headers.get("x-role") !== "admin") {
+    return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+  }
   try {
-    const role = req.headers.get("x-role");
-    if (role !== "admin") return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
-
-    const { id, displayName, email } = await req.json();
-    if (!id || !displayName) return NextResponse.json({ ok: false, error: "bad request" }, { status: 400 });
-
-    const db = await getDb();
-    // 없으면 생성, 있으면 갱신
-    await db.collection("users").updateOne(
+    const { id, displayName } = await req.json();
+    if (!id || !displayName?.trim()) {
+      return NextResponse.json({ ok: false, error: "bad request" }, { status: 400 });
+    }
+    const col = (await db()).collection("users");
+    const r = await col.updateOne(
       { id },
-      {
-        $setOnInsert: {
-          id,
-          email: email || `${id}@example.com`,
-          createdAt: new Date().toISOString(),
-        },
-        $set: {
-          displayName,
-          status: "approved",
-          updatedAt: new Date().toISOString(),
-        },
-      },
-      { upsert: true }
+      { $set: { status: "approved", displayName: displayName.trim() } }
     );
-
+    if (!r.matchedCount) {
+      return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
+    }
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });

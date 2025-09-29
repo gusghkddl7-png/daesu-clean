@@ -1,20 +1,39 @@
-import path from "node:path";
-import fs from "node:fs/promises";
+// app/api/register/route.js
+import { NextResponse } from "next/server";
+import { MongoClient } from "mongodb";
 
-const DB = path.join(process.cwd(), "data", "users.json");
-
-async function readUsers(){
-  try { const s = await fs.readFile(DB, "utf8"); return JSON.parse(s); }
-  catch { return []; }
+let client = null;
+async function db() {
+  if (!client) {
+    client = new MongoClient(process.env.MONGODB_URI);
+    await client.connect();
+  }
+  return client.db(process.env.MONGODB_DB || "daesu-clean-2");
 }
-async function writeUsers(list){ await fs.writeFile(DB, JSON.stringify(list, null, 2), "utf8"); }
 
+// 회원가입: { id, email, displayName? }
 export async function POST(req) {
-  const { id, password, name, phone } = await req.json();
-  if(!id || !password || !name || !phone) return new Response(JSON.stringify({ error:"필수 항목 누락" }), { status:400 });
-  const users = await readUsers();
-  if (users.some(u => u.id === id)) return new Response(JSON.stringify({ error:"이미 존재하는 아이디입니다." }), { status:409 });
-  users.push({ id, password, name, phone, approved: false });
-  await writeUsers(users);
-  return new Response(JSON.stringify({ ok:true, status:"PENDING" }), { status:200, headers:{ "content-type":"application/json" }});
+  try {
+    const { id, email, displayName } = await req.json();
+    if (!id || !email) {
+      return NextResponse.json({ ok: false, error: "missing id/email" }, { status: 400 });
+    }
+    const dbo = await db();
+    const col = dbo.collection("users");
+
+    // 이미 있으면 업데이트, 없으면 생성 (대기중으로)
+    const now = new Date().toISOString();
+    await col.updateOne(
+      { id },
+      {
+        $setOnInsert: { id, email, createdAt: now },
+        $set: { status: "pending", displayName: displayName || "" },
+      },
+      { upsert: true }
+    );
+
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+  }
 }
