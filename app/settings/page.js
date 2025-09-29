@@ -160,7 +160,7 @@ export default function Page() {
   const [apiAvailable, setApiAvailable] = useState(false);
 
   // 각 대기 사용자 행의 "담당자 이름" 입력칸을 안정적으로 참조
-  const nameRefs = useRef({}); // { [userId]: HTMLInputElement }
+  const nameRefs = useRef({}); // { [ident(email|id)]: HTMLInputElement }
 
   async function loadPeople() {
     setLoadingPeople(true);
@@ -188,22 +188,27 @@ export default function Page() {
   }
   useEffect(() => { loadPeople(); }, []);
 
-  async function approveUser(id, displayNameRaw){
+  // email 우선, 없으면 id로 승인
+  async function approveUser(idOrEmail, displayNameRaw){
     const displayName = (displayNameRaw||"").trim();
     if (!displayName) { toast.push("담당자 이름을 입력하세요","error"); return; }
+
+    // 서버가 email을 요구하므로 우선 email을 전송
+    const payload = { displayName };
+    if (typeof idOrEmail === "string" && idOrEmail.includes("@")) payload.email = idOrEmail;
+    else payload.id = idOrEmail;
+
     try{
       if (apiAvailable) {
-        const res = await apiPost(
-          "/api/users/approve",
-          { id, displayName },
-          { headers:{ "x-role":"admin"} }
-        );
+        const res = await apiPost("/api/users/approve", payload, { headers:{ "x-role":"admin"} });
         if (!res || res.ok === false) throw 0;
       } else {
-        const next = users.map(x => x.id===id ? { ...x, status:"approved", name: displayName || x.name } : x);
+        const next = users.map(x =>
+          (x.id===idOrEmail || x.email===idOrEmail) ? { ...x, status:"approved", name: displayName || x.name } : x
+        );
         setUsers(next); saveUsers(next);
       }
-      if (nameRefs.current[id]) nameRefs.current[id].value = "";
+      if (nameRefs.current[idOrEmail]) nameRefs.current[idOrEmail].value = "";
       toast.push("승인 완료");
       await loadPeople();
     }catch{ toast.push("승인 실패", "error"); }
@@ -424,35 +429,39 @@ export default function Page() {
             {loadingPeople ? <div className="empty">불러오는 중…</div> :
               pending.length===0 ? <div className="empty">대기 중인 요청이 없습니다.</div> :
               <div className="list">
-                {pending.map(u => (
-                  <div key={u.id} className="item">
-                    <div className="item-main">
-                      <div className="bold">{u.email || u.id}</div>
-                      <div className="muted">{u.createdAt ? new Date(u.createdAt).toLocaleString() : "-"}</div>
+                {pending.map(u => {
+                  const ident = u.email || u.id; // email 우선
+                  return (
+                    <div key={ident} className="item">
+                      <div className="item-main">
+                        <div className="bold">{ident}</div>
+                        <div className="muted">{u.createdAt ? new Date(u.createdAt).toLocaleString() : "-"}</div>
+                      </div>
+                      <div className="item-edit">
+                        <input
+                          ref={(el) => { if (el) nameRefs.current[ident] = el; }}
+                          className="search"
+                          placeholder="담당자 이름"
+                          defaultValue={u.displayName||""}
+                          onKeyDown={(e)=>{
+                            if(e.key==="Enter"){
+                              e.preventDefault();
+                              approveUser(ident, nameRefs.current[ident]?.value);
+                            }
+                          }}
+                        />
+                      </div>
+                      <div className="item-ops">
+                        <button
+                          className="mini"
+                          onClick={()=>approveUser(ident, nameRefs.current[ident]?.value)}
+                          disabled={!nameRefs.current[ident] || !nameRefs.current[ident].value?.trim()}
+                        >승인</button>
+                        <button className="mini" onClick={()=>rejectUserLocal(u.id)}>거절</button>
+                      </div>
                     </div>
-                    <div className="item-edit">
-                      <input
-                        ref={(el) => { if (el) nameRefs.current[u.id] = el; }}
-                        className="search"
-                        placeholder="담당자 이름"
-                        defaultValue={u.displayName||""}
-                        onKeyDown={(e)=>{
-                          if(e.key==="Enter"){
-                            e.preventDefault();
-                            approveUser(u.id, nameRefs.current[u.id]?.value);
-                          }
-                        }}
-                      />
-                    </div>
-                    <div className="item-ops">
-                      <button
-  className="mini"
-  onClick={()=>approveUser(u.id, nameRefs.current[u.id]?.value)}
->승인</button>
-                      <button className="mini" onClick={()=>rejectUserLocal(u.id)}>거절</button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             }
           </section>
