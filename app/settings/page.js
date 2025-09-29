@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 /* ========= 유틸 ========= */
@@ -7,14 +7,22 @@ const loadUsers = () => { try { return JSON.parse(localStorage.getItem("daesu:us
 const saveUsers = (a)   => { try { localStorage.setItem("daesu:users", JSON.stringify(a)); } catch {} };
 
 async function apiGet(url, opts = {}) {
-  try { const r = await fetch(url, { cache: "no-store", ...opts }); if (!r.ok) throw 0; return await r.json(); }
-  catch { return null; }
+  try {
+    const r = await fetch(url, { cache: "no-store", ...opts });
+    if (!r.ok) throw new Error();
+    return await r.json();
+  } catch { return null; }
 }
 async function apiPost(url, body, opts = {}) {
   try {
-    const r = await fetch(url, { method: "POST", cache: "no-store",
-      headers: { "Content-Type": "application/json", ...(opts.headers||{}) }, body: JSON.stringify(body) });
-    if (!r.ok) throw 0; return await r.json();
+    const r = await fetch(url, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", ...(opts.headers||{}) },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) throw new Error();
+    return await r.json();
   } catch { return null; }
 }
 
@@ -92,8 +100,8 @@ const DEFAULT_SHORTCUTS = {
   autofocusSearch: true,
 };
 const DEFAULT_STARTUP = {
-  home: "/dashboard",        // 첫 화면
-  autoOpen: [],              // 자동으로 열 패널 키들
+  home: "/dashboard",
+  autoOpen: [],
 };
 
 /* ========= 공지 팝업 로컬키 ========= */
@@ -104,11 +112,14 @@ export default function Page() {
   const router  = useRouter();
   const toast   = useToast();
 
-  /* 권한 */
+  /* 권한(로컬 세션) */
   const [role, setRole] = useState("guest");
-  useEffect(() => { try {
-      const s = JSON.parse(localStorage.getItem("daesu:session") || "null"); setRole(s?.role || "guest");
-    } catch {} }, []);
+  useEffect(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem("daesu:session") || "null");
+      setRole(s?.role || "guest");
+    } catch {}
+  }, []);
 
   /* 탭 상태 */
   const [tab, setTab] = useState("people");
@@ -124,8 +135,18 @@ export default function Page() {
       applyThemeToDOM(m); applyDensityToDOM(d);
     } catch {}
   }, []);
-  function changeTheme(m){ setThemeMode(m); try{ localStorage.setItem(THEME_KEY,m);}catch{}; applyThemeToDOM(m); toast.push(m==="system"?"시스템 테마 사용":`${m==="dark"?"다크":"라이트"} 테마 적용`); }
-  function changeDensity(d){ setDensity(d); try{ localStorage.setItem(DENSITY_KEY,d);}catch{}; applyDensityToDOM(d); toast.push(d==="compact"?"컴팩트 모드":"코지 모드"); }
+  function changeTheme(m){
+    setThemeMode(m);
+    try{ localStorage.setItem(THEME_KEY,m);}catch{}
+    applyThemeToDOM(m);
+    toast.push(m==="system"?"시스템 테마 사용":`${m==="dark"?"다크":"라이트"} 테마 적용`);
+  }
+  function changeDensity(d){
+    setDensity(d);
+    try{ localStorage.setItem(DENSITY_KEY,d);}catch{}
+    applyDensityToDOM(d);
+    toast.push(d==="compact"?"컴팩트 모드":"코지 모드");
+  }
 
   /* === users 폴백 === */
   const [q, setQ] = useState("");
@@ -138,6 +159,9 @@ export default function Page() {
   const [loadingPeople, setLoadingPeople] = useState(false);
   const [apiAvailable, setApiAvailable] = useState(false);
 
+  // 각 대기 사용자 행의 "담당자 이름" 입력칸을 안정적으로 참조
+  const nameRefs = useRef({}); // { [userId]: HTMLInputElement }
+
   async function loadPeople() {
     setLoadingPeople(true);
     const p = await apiGet("/api/users/pending", { headers: { "x-role": "admin" } });
@@ -146,31 +170,53 @@ export default function Page() {
       setApiAvailable(true);
       setPending(Array.isArray(p) ? p : []);
       setApproved(Array.isArray(a) ? a : []);
-      setLoadingPeople(false); return;
+      setLoadingPeople(false);
+      return;
     }
+    // 로컬 폴백
     const local = loadUsers();
-    const p2 = local.filter(u => (u.status||"pending")==="pending").map(u=>({
-      id:u.id, email:u.id+"@example.com", displayName:u.name||"", status:u.status||"pending", createdAt:new Date().toISOString()
-    }));
-    const a2 = local.filter(u => (u.status||"")==="approved").map(u=>({ id:u.id, displayName:u.name||u.id }));
-    setApiAvailable(false); setPending(p2); setApproved(a2); setLoadingPeople(false);
+    const p2 = local
+      .filter(u => (u.status||"pending")==="pending")
+      .map(u=>({ id:u.id, email:u.id+"@example.com", displayName:u.name||"", status:u.status||"pending", createdAt:new Date().toISOString() }));
+    const a2 = local
+      .filter(u => (u.status||"")==="approved")
+      .map(u=>({ id:u.id, displayName:u.name||u.id }));
+    setApiAvailable(false);
+    setPending(p2);
+    setApproved(a2);
+    setLoadingPeople(false);
   }
   useEffect(() => { loadPeople(); }, []);
 
-  async function approveUser(id, displayName){
+  async function approveUser(id, displayNameRaw){
+    const displayName = (displayNameRaw||"").trim();
+    if (!displayName) { toast.push("담당자 이름을 입력하세요","error"); return; }
     try{
       if (apiAvailable) {
-        const ok = await apiPost("/api/users/approve", { id, displayName }, { headers:{ "x-role":"admin"} });
-        if (!ok) throw 0;
+        const res = await apiPost(
+          "/api/users/approve",
+          { id, displayName },
+          { headers:{ "x-role":"admin"} }
+        );
+        if (!res || res.ok === false) throw 0;
       } else {
         const next = users.map(x => x.id===id ? { ...x, status:"approved", name: displayName || x.name } : x);
         setUsers(next); saveUsers(next);
       }
-      toast.push("승인 완료"); await loadPeople();
+      if (nameRefs.current[id]) nameRefs.current[id].value = "";
+      toast.push("승인 완료");
+      await loadPeople();
     }catch{ toast.push("승인 실패", "error"); }
   }
-  function rejectUserLocal(id){ const next = users.map(x => x.id===id ? { ...x, status:"rejected" } : x); setUsers(next); saveUsers(next); loadPeople(); toast.push("거절 처리됨"); }
-  function toggleAdminLocal(u){ const next = users.map(x => x.id===u.id ? { ...x, role:(x.role==="admin"?"user":"admin") } : x); setUsers(next); saveUsers(next); loadPeople(); toast.push("권한 변경"); }
+
+  function rejectUserLocal(id){
+    const next = users.map(x => x.id===id ? { ...x, status:"rejected" } : x);
+    setUsers(next); saveUsers(next); loadPeople(); toast.push("거절 처리됨");
+  }
+  function toggleAdminLocal(u){
+    const next = users.map(x => x.id===u.id ? { ...x, role:(x.role==="admin"?"user":"admin") } : x);
+    setUsers(next); saveUsers(next); loadPeople(); toast.push("권한 변경");
+  }
 
   const filteredUsers = useMemo(()=>{
     const kw=q.trim(); let arr=users;
@@ -188,7 +234,10 @@ export default function Page() {
   const [editTitle, setEditTitle] = useState("");
   const [editBody, setEditBody]   = useState("");
 
-  async function loadNotices(){ const list = await apiGet("/api/notices"); setNotices(Array.isArray(list) ? list : []); }
+  async function loadNotices(){
+    const list = await apiGet("/api/notices");
+    setNotices(Array.isArray(list) ? list.map(n=>({ ...n, createdAt: n.createdAt || new Date().toISOString() })) : []);
+  }
   useEffect(() => { loadNotices(); }, []);
 
   async function createNotice(){
@@ -255,7 +304,6 @@ export default function Page() {
     setPopupNotice(pick);
   }, [notices]);
 
-  // 항상 "오늘 본 것으로" 기록 (snooze 구분 제거)
   function closeNoticePopup(){
     try{
       if (popupNotice){
@@ -265,8 +313,6 @@ export default function Page() {
     }catch{}
     setPopupNotice(null);
   }
-
-  // ESC로 공지 팝업 닫기 (편의)
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && setPopupNotice(null);
     if (popupNotice) document.addEventListener("keydown", onKey);
@@ -347,7 +393,11 @@ export default function Page() {
     <main className="wrap">
       {/* 상단 바 */}
       <div className="topbar">
-        <div className="left"><button className="back" onClick={()=>router.push("/dashboard")}><span className="arrow">←</span> 뒤로가기</button></div>
+        <div className="left">
+          <button className="back" onClick={()=>router.push("/dashboard")}>
+            <span className="arrow">←</span> 뒤로가기
+          </button>
+        </div>
         <div className="center"><div className="title">설정</div></div>
         <div className="right"></div>
       </div>
@@ -364,7 +414,10 @@ export default function Page() {
       {/* PEOPLE */}
       {tab==="people" && (
         <>
-          <div className="info"><span className="chip">{apiAvailable ? "API 연결됨" : "로컬 폴백"}</span></div>
+          <div className="info">
+            <span className="chip">{apiAvailable ? "API 연결됨" : "로컬 폴백"}</span>
+            <button className="mini" style={{marginLeft:8}} onClick={loadPeople}>새로고침</button>
+          </div>
 
           <section className="cardbox">
             <div className="cardtitle">대기 중인 가입 요청</div>
@@ -378,14 +431,25 @@ export default function Page() {
                       <div className="muted">{u.createdAt ? new Date(u.createdAt).toLocaleString() : "-"}</div>
                     </div>
                     <div className="item-edit">
-                      <input className="search" placeholder="담당자 이름" defaultValue={u.displayName||""}
-                        onKeyDown={(e)=>{ if(e.key==="Enter"){ e.preventDefault(); const val=e.currentTarget.value.trim(); if(val) approveUser(u.id, val); }}} />
+                      <input
+                        ref={(el) => { if (el) nameRefs.current[u.id] = el; }}
+                        className="search"
+                        placeholder="담당자 이름"
+                        defaultValue={u.displayName||""}
+                        onKeyDown={(e)=>{
+                          if(e.key==="Enter"){
+                            e.preventDefault();
+                            approveUser(u.id, nameRefs.current[u.id]?.value);
+                          }
+                        }}
+                      />
                     </div>
                     <div className="item-ops">
-                      <button className="mini" onClick={()=>{
-                        const val = (document.activeElement && document.activeElement.value)||"";
-                        approveUser(u.id, val || u.displayName || u.id);
-                      }}>승인</button>
+                      <button
+                        className="mini"
+                        onClick={()=>approveUser(u.id, nameRefs.current[u.id]?.value)}
+                        disabled={!nameRefs.current[u.id] || !nameRefs.current[u.id].value?.trim()}
+                      >승인</button>
                       <button className="mini" onClick={()=>rejectUserLocal(u.id)}>거절</button>
                     </div>
                   </div>
@@ -408,44 +472,62 @@ export default function Page() {
               ))}</ul>}
           </section>
 
-          {/* 로컬 사용자 목록 */}
-          <section className="cardbox">
-            <div className="cardtitle">로컬 사용자 목록 (간단)</div>
-            <div style={{padding:"var(--pad)"}}>
-              <input className="search" placeholder="아이디/이름/전화 검색" value={q} onChange={e=>setQ(e.target.value)} />
-            </div>
-            <div className="list">
-              {filteredUsers.map(u=>(
-                <div key={u.id} className="item">
-                  <div className="item-main">
-                    <div className="bold">{u.name||u.id}</div>
-                    <div className="muted">{u.id} · {u.phone||"-"}</div>
+          {/* 로컬 사용자 목록: API 연결 시 숨김 */}
+          {!apiAvailable && (
+            <section className="cardbox">
+              <div className="cardtitle">로컬 사용자 목록 (간단)</div>
+              <div style={{padding:"var(--pad)"}}>
+                <input className="search" placeholder="아이디/이름/전화 검색" value={q} onChange={e=>setQ(e.target.value)} />
+              </div>
+              <div className="list">
+                {filteredUsers.map(u=>(
+                  <div key={u.id} className="item">
+                    <div className="item-main">
+                      <div className="bold">{u.name||u.id}</div>
+                      <div className="muted">{u.id} · {u.phone||"-"}</div>
+                    </div>
+                    <div className="item-ops">
+                      <button className="mini" onClick={()=>approveUser(u.id, u.name||u.id)}>승인</button>
+                      <button className="mini" onClick={()=>{
+                        const next=users.map(x=>x.id===u.id?{...x,status:"rejected"}:x);
+                        setUsers(next); saveUsers(next); loadPeople();
+                      }}>거절</button>
+                      <button className="mini" onClick={()=>toggleAdminLocal(u)}>{u.role==="admin"?"관리자 해제":"관리자 지정"}</button>
+                    </div>
                   </div>
-                  <div className="item-ops">
-                    <button className="mini" onClick={()=>approveUser(u.id, u.name||u.id)}>승인</button>
-                    <button className="mini" onClick={()=>{ const next=users.map(x=>x.id===u.id?{...x,status:"rejected"}:x); setUsers(next); saveUsers(next); loadPeople(); }}>거절</button>
-                    <button className="mini" onClick={()=>toggleAdminLocal(u)}>{u.role==="admin"?"관리자 해제":"관리자 지정"}</button>
-                  </div>
-                </div>
-              ))}
-              {!filteredUsers.length && <div className="empty">데이터가 없습니다.</div>}
-            </div>
-          </section>
+                ))}
+                {!filteredUsers.length && <div className="empty">데이터가 없습니다.</div>}
+              </div>
+            </section>
+          )}
         </>
       )}
 
       {/* NOTICE */}
       {tab==="notice" && (
         <section className="cardbox">
-          <div className="cardtitle">공지 관리</div>
+          <div className="cardtitle" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span>공지 관리</span>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <button className="mini" onClick={loadNotices}>새로고침</button>
+              <span className="chip">총 {filteredNotices.length}건</span>
+            </div>
+          </div>
+
           <div style={{ padding: "var(--pad)", display: "grid", gap: "var(--gap)" }}>
             <input className="search" placeholder="제목/내용 검색" value={nSearch} onChange={e=>setNSearch(e.target.value)} />
-            <input className="search" placeholder="제목" value={nTitle} onChange={e=>setNTitle(e.target.value)}
-              onKeyDown={(e)=>{ if(e.key==="Enter"){ e.preventDefault(); createNotice(); } }} />
+            <input
+              className="search"
+              placeholder="제목"
+              value={nTitle}
+              onChange={e=>setNTitle(e.target.value)}
+              onKeyDown={(e)=>{ if(e.key==="Enter"){ e.preventDefault(); createNotice(); } }}
+            />
             <textarea className="search" placeholder="내용" value={nBody} rows={4} onChange={e=>setNBody(e.target.value)} />
             <div style={{ display:"flex", gap:"var(--gap)", alignItems:"center" }}>
-              <button className="mini" onClick={createNotice} disabled={!nTitle.trim() || !nBody.trim() || busyN}>{busyN?"저장 중…":"공지 등록"}</button>
-              <span className="chip">총 {filteredNotices.length}건</span>
+              <button className="mini" onClick={createNotice} disabled={!nTitle.trim() || !nBody.trim() || busyN}>
+                {busyN?"저장 중…":"공지 등록"}
+              </button>
             </div>
           </div>
 
@@ -552,9 +634,7 @@ export default function Page() {
               <input type="checkbox" checked={shortcuts.autofocusSearch} onChange={e=>saveShortcuts({ ...shortcuts, autofocusSearch:e.target.checked })} />
               페이지 진입 시 검색창 자동 포커스
             </label>
-            <div className="empty" style={{textAlign:"left"}}>
-              * 실제 키 바인딩은 공용 레이아웃에 연결할 예정입니다.
-            </div>
+            <div className="empty" style={{textAlign:"left"}}>* 실제 키 바인딩은 공용 레이아웃에 연결할 예정입니다.</div>
           </div>
         </section>
       )}
@@ -579,13 +659,15 @@ export default function Page() {
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 {["notice","urgent","billing"].map(key=>(
                   <label key={key} style={{display:"inline-flex",gap:6,alignItems:"center",border:"1px solid var(--border)",borderRadius:8,padding:"6px 10px",background:"var(--chip-bg)"}}>
-                    <input type="checkbox"
+                    <input
+                      type="checkbox"
                       checked={startup.autoOpen.includes(key)}
                       onChange={e=>{
                         const set = new Set(startup.autoOpen);
                         e.target.checked ? set.add(key) : set.delete(key);
                         saveStartup({ ...startup, autoOpen:[...set] });
-                      }}/>
+                      }}
+                    />
                     {key}
                   </label>
                 ))}
@@ -622,11 +704,11 @@ export default function Page() {
 
       {/* === 공지 팝업 === */}
       {popupNotice && (
-        <div className="modal" onClick={()=>closeNoticePopup()}>
+        <div className="modal" onClick={closeNoticePopup}>
           <div className="panel" onClick={(e)=>e.stopPropagation()}>
             <div className="panel-head">
               <div className="panel-title">공지</div>
-              <button className="mini" onClick={()=>closeNoticePopup()}>닫기</button>
+              <button className="mini" onClick={closeNoticePopup}>닫기</button>
             </div>
             <div className="panel-body">
               <div className="notice-title">{popupNotice.pinned ? "📌 " : ""}{popupNotice.title}</div>
@@ -634,9 +716,9 @@ export default function Page() {
               <div className="notice-body">{popupNotice.body}</div>
             </div>
             <div className="panel-foot">
-              <button className="mini" onClick={()=>closeNoticePopup()}>오늘 다시 보지 않기</button>
+              <button className="mini" onClick={closeNoticePopup}>오늘 다시 보지 않기</button>
               <div style={{flex:1}}/>
-              <button className="mini on" onClick={()=>closeNoticePopup()}>확인</button>
+              <button className="mini on" onClick={closeNoticePopup}>확인</button>
             </div>
           </div>
         </div>
@@ -673,7 +755,7 @@ const STYLES = `
 
   .wrap{min-height:100svh;background:linear-gradient(180deg,var(--bg),var(--bg));color:var(--fg);padding:12px}
   .topbar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin-bottom:14px}
-  .left{justify-self:start}.center{justify-self:center}.right{justify-self:end}
+  .left{justify-self:start}.center{justify-self:center}.right{justify-self=end}
   .title{font-weight:900}
   .back{display:inline-flex;gap:8px;align-items:center;border:1px solid var(--border);background:var(--card);border-radius:10px;padding:8px 12px}
 
@@ -691,9 +773,8 @@ const STYLES = `
   .gridlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:var(--gap);padding:10px}
   .chiprow{border:1px solid var(--border);border-radius:10px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;background:var(--card)}
   .chiprow .name{font-weight:700}.chiprow .meta{font-size:11px;color:var(--muted)}
-  .chiprow .ops{display:flex;gap:6;align-items:center}
+  .chiprow .ops{display:flex;gap:6px;align-items:center}
 
-  /* 간단 리스트형 */
   .list{display:flex;flex-direction:column}
   .item{display:grid;grid-template-columns:1.3fr 1fr auto;gap:var(--gap);padding:12px;border-bottom:1px solid var(--border);align-items:center}
   .item-main .bold{font-weight:800}
@@ -716,7 +797,6 @@ const STYLES = `
   .pv-chip{display:inline-block;padding:4px 8px;border-radius:999px;border:1px solid var(--border);background:var(--chip-bg);font-size:12px}
   .pv-row{display:flex;gap:8px;flex-wrap:wrap}
 
-  /* 공지 팝업 */
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:12px;z-index:100}
   .panel{width:560px;max-width:96%;background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.28)}
   .panel-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--card-contrast)}
