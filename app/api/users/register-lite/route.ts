@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     const col = db.collection("users");
 
     const now = new Date().toISOString();
-    // 이미 approved면 건드리지 않고, 없거나 다른 상태면 pending으로 세팅
+    // 이미 approved면 그대로 두고, 그 외/없으면 pending으로
     const res = await col.findOneAndUpdate(
       { email },
       {

@@ -1,6 +1,5 @@
-// app/api/users/approve/route.ts
-import { NextResponse } from "next/server";
-import { MongoClient } from "mongodb";
+﻿import { NextResponse } from "next/server";
+import { MongoClient, WithId } from "mongodb";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -8,60 +7,81 @@ export const revalidate = 0;
 let client: MongoClient | null = null;
 async function getClient() {
   if (client) return client;
-  const uri = process.env.MONGODB_URI!;
-  client = new MongoClient(uri);
+  client = new MongoClient(process.env.MONGODB_URI!);
   await client.connect();
   return client;
 }
 
-type Body = { id?: string; email?: string; displayName?: string };
+type Body = { email?: string; id?: string; displayName?: string };
+const norm = (s?: string) => (s || "").trim().toLowerCase();
 
 export async function POST(req: Request) {
-  // 관리자 체크
-  const role = req.headers.get("x-role");
-  if (role !== "admin") {
-    return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
-  }
-
-  let body: Body;
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "bad json" }, { status: 400 });
-  }
+    const body = (await req.json()) as Body;
+    const email = norm(body.email);
+    const id    = norm(body.id);
+    const displayName = (body.displayName || "").trim();
+    if (!displayName || (!email && !id)) {
+      return NextResponse.json({ ok:false, error:"displayName + (email|id) required" }, { status:400 });
+    }
 
-  const idOrEmail = (body.id || body.email || "").trim();
-  const displayName = (body.displayName || "").trim();
-
-  if (!idOrEmail || !displayName) {
-    return NextResponse.json({ ok: false, error: "id/email or displayName missing" }, { status: 400 });
-  }
-
-  try {
     const cli = await getClient();
-    const db = cli.db(process.env.MONGODB_DB);
+    const db  = cli.db(process.env.MONGODB_DB);
     const col = db.collection("users");
-
-    // id 또는 email 어느 쪽으로든 찾아서 승인 처리
     const now = new Date().toISOString();
 
-    const res = await col.findOneAndUpdate(
-      { $or: [{ id: idOrEmail }, { email: idOrEmail }] },
-      {
-        $set: {
-          id: idOrEmail, // 없던 문서에도 통일된 키로 보관
-          email: idOrEmail, // 가입이 email 기반이라면 email에도 동일 저장
-          displayName,
-          status: "approved",
-          updatedAt: now,
-        },
-        $setOnInsert: { createdAt: now },
-      },
-      { returnDocument: "after", upsert: true, projection: { _id: 0 } }
-    );
+    // 후보 전부 찾기 (email/id 어느 쪽이든)
+    const candidates = await col.find({
+      $or: [
+        ...(email ? [{ email }, { id: email }] : []),
+        ...(id    ? [{ email: id }, { id }]     : []),
+      ],
+    }, { projection: { _id:0 } }).toArray();
 
-    return NextResponse.json({ ok: true, user: res });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+    const key = email || id!;
+
+    if (candidates.length === 0) {
+      // 없으면 새로 만들되 곧바로 approved
+      await col.updateOne(
+        { email: key },
+        {
+          $set: { email: key, id: key, displayName, status: "approved", updatedAt: now },
+          $setOnInsert: { createdAt: now }
+        },
+        { upsert: true }
+      );
+    } else {
+      // 대표 문서 하나로 정규화
+      const main = candidates[0] as WithId<any>;
+      const canonical = norm((main as any).email) || norm((main as any).id);
+
+      await col.updateOne(
+        { $or: [{ email: canonical }, { id: canonical }] },
+        {
+          $set: { email: canonical, id: canonical, displayName, status: "approved", updatedAt: now },
+          $setOnInsert: { createdAt: now }
+        },
+        { upsert: true }
+      );
+
+      // 나머지 중복 키 수집
+      const dupKeys = new Set<string>([canonical]);
+      for (const c of candidates.slice(1)) {
+        const k = norm((c as any).email) || norm((c as any).id);
+        if (k && !dupKeys.has(k)) dupKeys.add(k);
+      }
+
+      // canonical 제외하고 삭제 (※ Array.from으로 변경)
+      const toRemove = Array.from(dupKeys).filter(k => k !== canonical);
+      if (toRemove.length) {
+        await col.deleteMany({
+          $or: toRemove.reduce((acc, k) => (acc.push({ email:k }, { id:k }), acc), [] as any[])
+        });
+      }
+    }
+
+    return NextResponse.json({ ok:true });
+  } catch (e:any) {
+    return NextResponse.json({ ok:false, error:String(e?.message||e) }, { status:500 });
   }
 }

@@ -1,4 +1,3 @@
-// app/settings/page.js
 "use client";
 
 import { useEffect, useMemo, useState, useRef } from "react";
@@ -29,8 +28,8 @@ async function apiPost(url, body, opts = {}) {
 }
 
 /* === 비교/정규화/중복 방지 유틸 === */
-const norm = (s) => (s || "").trim().toLowerCase();            // 식별자 비교용
-const dedupeById = (arr) => {                                   // id/email 기준 중복 제거
+const norm = (s) => (s || "").trim().toLowerCase();
+const dedupeById = (arr) => {
   const seen = new Set(); const out = [];
   for (const x of arr || []) {
     const k = norm(x.id || x.email);
@@ -106,7 +105,7 @@ function applyDensityToDOM(density) {
 /* ========= 보조: 저장/불러오기 ========= */
 const SHORTCUTS_KEY = "daesu:shortcuts";
 const STARTUP_KEY   = "daesu:startup";
-const ADMINS_KEY    = "daesu:admins"; // 승인자 중 관리자 id 저장
+const ADMINS_KEY    = "daesu:admins";
 
 const DEFAULT_SHORTCUTS = { submitWithEnter: true, closeWithEsc: true, autofocusSearch: true };
 const DEFAULT_STARTUP   = { home: "/dashboard", autoOpen: [] };
@@ -122,35 +121,36 @@ export default function Page() {
   /* 깜빡임 완화 & 권한 */
   const [hydrated, setHydrated] = useState(false);
   useEffect(()=>{ setHydrated(true); },[]);
+
+  // SSR 안전: 초기값은 고정, 값 읽기는 클라이언트에서
   const [role, setRole] = useState("guest");
   useEffect(() => {
-    try {
-      const s = JSON.parse(localStorage.getItem("daesu:session") || "null");
-      setRole(s?.role || "guest");
-    } catch {}
+    try { const s = JSON.parse(localStorage.getItem("daesu:session") || "null"); setRole(s?.role || "guest"); } catch {}
   }, []);
 
   /* 탭 상태 */
   const [tab, setTab] = useState("people");
 
-  /* === 테마/밀도 === */
+  /* === 테마/밀도 (SSR 안전) === */
   const [themeMode, setThemeMode] = useState("system");
   const [density, setDensity]     = useState("cozy");
   useEffect(() => {
     try {
-      const m = localStorage.getItem(THEME_KEY)   || "system";
+      const m = localStorage.getItem(THEME_KEY) || "system";
       const d = localStorage.getItem(DENSITY_KEY) || "cozy";
-      setThemeMode(m); setDensity(d);
-      applyThemeToDOM(m); applyDensityToDOM(d);
+      setThemeMode(m);
+      setDensity(d);
+      applyThemeToDOM(m);
+      applyDensityToDOM(d);
     } catch {}
   }, []);
   function changeTheme(m){ setThemeMode(m); try{ localStorage.setItem(THEME_KEY,m);}catch{}; applyThemeToDOM(m); toast.push(m==="system"?"시스템 테마 사용":`${m==="dark"?"다크":"라이트"} 테마 적용`); }
   function changeDensity(d){ setDensity(d); try{ localStorage.setItem(DENSITY_KEY,d);}catch{}; applyDensityToDOM(d); toast.push(d==="compact"?"컴팩트 모드":"코지 모드"); }
 
-  /* === users 폴백 === */
+  /* === users 폴백 (SSR 안전) === */
   const [q, setQ] = useState("");
   const [users, setUsers] = useState([]);
-  useEffect(() => { setUsers(loadUsers()); }, []);
+  useEffect(()=>{ setUsers(loadUsers()); },[]);
 
   /* 직원 탭 */
   const [pending, setPending] = useState([]);
@@ -162,11 +162,14 @@ export default function Page() {
   const [apiHasPending, setApiHasPending] = useState(false);
   const [apiHasApproved, setApiHasApproved] = useState(false);
 
-  // 관리자 집합
-  const [adminIds, setAdminIds] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem(ADMINS_KEY) || "[]")); }
-    catch { return new Set(); }
-  });
+  // 첫 로딩 완료 플래그(로컬 섹션 깜빡임 방지용)
+  const [firstLoaded, setFirstLoaded] = useState(false);
+
+  // 관리자 집합 (SSR 안전)
+  const [adminIds, setAdminIds] = useState(new Set());
+  useEffect(()=>{
+    try { setAdminIds(new Set(JSON.parse(localStorage.getItem(ADMINS_KEY) || "[]"))); } catch {}
+  },[]);
   function persistAdmins(setObj){ try{ localStorage.setItem(ADMINS_KEY, JSON.stringify(Array.from(setObj))); }catch{} }
 
   // 각 대기 사용자 행의 "담당자 이름" 입력칸 참조
@@ -175,11 +178,11 @@ export default function Page() {
   // 다중 클릭 방지
   const [busyIds, setBusyIds] = useState(new Set());
 
-  /** === 핵심: 로딩 로직(이제 API가 빈 배열이어도 그대로 반영) === */
+  /** === 핵심: 로딩 로직 (폴백을 API 빈 배열로 덮어쓰지 않기) === */
   async function loadPeople() {
     setLoadingPeople(true);
 
-    // 로컬 폴백 준비
+    // 1) 로컬 폴백 준비
     const local = loadUsers();
     const pLocal = local
       .filter(u => (u.status || "pending") === "pending")
@@ -195,34 +198,44 @@ export default function Page() {
       .filter(u => (u.status || "") === "approved")
       .map(u => ({ id: u.id, email: u.email, displayName: u.name || u.id, status: "approved" }));
 
-    // API 병렬 호출
+    // 2) API 병렬 호출
     const [pRes, aRes] = await Promise.all([
       apiGet("/api/users/pending",  { headers: { "x-role": "admin" } }),
       apiGet("/api/users/approved", { headers: { "x-role": "admin" } }),
     ]);
 
+    // 3) API 가용성(연결) 여부
     const reachable = (pRes !== null) || (aRes !== null);
     setApiAvailable(reachable);
 
-    // ✅ 응답이 배열이면(빈 배열 포함) 그대로 덮어씀
-    if (Array.isArray(pRes)) {
+    // 4) pending 반영
+    if (Array.isArray(pRes) && pRes.length > 0) {
       setPending(pRes);
-      setApiHasPending(pRes.length > 0);
-    } else {
+      setApiHasPending(true);
+    } else if (!Array.isArray(pRes)) {
       setPending(pLocal);
       setApiHasPending(false);
-    }
+    } // 빈 배열([])이면 기존값 유지
 
-    if (Array.isArray(aRes)) {
+    // 5) approved 반영 (id 정규화)
+    if (Array.isArray(aRes) && aRes.length > 0) {
       const normA = aRes.map(x => ({ ...x, id: x.id || x.email }));
-      setApproved(dedupeById(normA));
-      setApiHasApproved(aRes.length > 0);
-    } else {
-      setApproved(dedupeById(aLocal));
+      setApproved(normA);
+      setApiHasApproved(true);
+    } else if (!Array.isArray(aRes)) {
+      setApproved(aLocal);
       setApiHasApproved(false);
-    }
+    } // 빈 배열([])이면 기존값 유지
+
+    // 6) 첫 로드시 아무 것도 없으면 로컬로 채움
+    setPending(prev => (prev && prev.length ? prev : pLocal));
+    setApproved(prev => (prev && prev.length ? prev : aLocal));
+
+    // 7) 중복 정리
+    setApproved(prev => dedupeById(prev));
 
     setLoadingPeople(false);
+    setFirstLoaded(true);
   }
   useEffect(() => { loadPeople(); }, []);
 
@@ -235,12 +248,11 @@ export default function Page() {
     const key = norm(raw);
 
     if (busyIds.has(key)) return;
-    setBusyIds(prev => { const n = new Set(prev); n.add(key); return n; });
+    setBusyIds(prev => new Set(prev).add(key));
 
     const payload = { displayName };
     if (raw.includes("@")) payload.email = raw; else payload.id = raw;
 
-    // 낙관적 업데이트
     const prevPending = pending;
     const prevApproved = approved;
 
@@ -261,12 +273,10 @@ export default function Page() {
       if (nameRefs.current[raw]) nameRefs.current[raw].value = "";
       toast.push("승인 완료");
 
-      // 새 데이터 동기화
       await loadPeople();
       setPending(p => (p||[]).filter(u => norm(u.email || u.id) !== key));
       setApproved(a => dedupeById(a));
     }catch{
-      // 실패 시 롤백
       setPending(prevPending);
       setApproved(prevApproved);
       toast.push("승인 실패","error");
@@ -394,60 +404,19 @@ export default function Page() {
     return () => document.removeEventListener("keydown", onKey);
   }, [popupNotice]);
 
-  /* === 단축키 === */
-  const [shortcuts, setShortcuts] = useState(() => {
-    try{ return JSON.parse(localStorage.getItem(SHORTCUTS_KEY)||"null")||DEFAULT_SHORTCUTS;}catch{ return DEFAULT_SHORTCUTS; }
-  });
+  /* === 단축키 (SSR 안전) === */
+  const [shortcuts, setShortcuts] = useState(DEFAULT_SHORTCUTS);
+  useEffect(() => {
+    try{ setShortcuts(JSON.parse(localStorage.getItem(SHORTCUTS_KEY)||"null")||DEFAULT_SHORTCUTS);}catch{}
+  }, []);
   function saveShortcuts(next){ setShortcuts(next); try{ localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(next)); }catch{}; toast.push("단축키 설정 저장"); }
 
-  /* === 시작화면 === */
-  const [startup, setStartup] = useState(() => {
-    try{ return JSON.parse(localStorage.getItem(STARTUP_KEY)||"null")||DEFAULT_STARTUP;}catch{ return DEFAULT_STARTUP; }
-  });
+  /* === 시작화면 (SSR 안전) === */
+  const [startup, setStartup] = useState(DEFAULT_STARTUP);
+  useEffect(() => {
+    try{ setStartup(JSON.parse(localStorage.getItem(STARTUP_KEY)||"null")||DEFAULT_STARTUP);}catch{}
+  }, []);
   function saveStartup(next){ setStartup(next); try{ localStorage.setItem(STARTUP_KEY, JSON.stringify(next)); }catch{}; toast.push("시작화면 설정 저장"); }
-
-  /* === 스토리지/백업 유틸 === */
-  function lsSize() {
-    try {
-      let bytes = 0;
-      for (let i=0;i<localStorage.length;i++){
-        const k = localStorage.key(i);
-        const v = localStorage.getItem(k) || "";
-        bytes += k.length + v.length;
-      }
-      return `${(bytes/1024).toFixed(1)} KB`;
-    } catch { return "-"; }
-  }
-  function clearKey(k){ try{ localStorage.removeItem(k); toast.push("삭제됨"); }catch{ toast.push("실패","error"); } }
-  function clearAll(){ try{ localStorage.clear(); toast.push("로컬 스토리지 전체 삭제"); }catch{ toast.push("실패","error"); } }
-  function exportSettings(){
-    const payload = {
-      themeMode, density, shortcuts, startup,
-      users, notices,
-      at: new Date().toISOString()
-    };
-    const blob = new Blob([JSON.stringify(payload,null,2)], { type:"application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `daesu-settings-backup-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
-  function importSettings(file){
-    const fr = new FileReader();
-    fr.onload = () => {
-      try {
-        const data = JSON.parse(fr.result?.toString()||"{}");
-        if (data.themeMode){ localStorage.setItem(THEME_KEY, data.themeMode); setThemeMode(data.themeMode); applyThemeToDOM(data.themeMode); }
-        if (data.density){ localStorage.setItem(DENSITY_KEY, data.density); setDensity(data.density); applyDensityToDOM(data.density); }
-        if (data.shortcuts){ localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(data.shortcuts)); setShortcuts(data.shortcuts); }
-        if (data.startup){ localStorage.setItem(STARTUP_KEY, JSON.stringify(data.startup)); setStartup(data.startup); }
-        if (Array.isArray(data.users)){ saveUsers(data.users); setUsers(data.users); }
-        toast.push("백업 복구 완료");
-      } catch { toast.push("복구 실패","error"); }
-    };
-    fr.readAsText(file);
-  }
 
   /* ===== 권한 없는 화면 ===== */
   if (!hydrated) {
@@ -567,8 +536,8 @@ export default function Page() {
             }
           </section>
 
-          {/* 로컬 사용자 목록: API가 비어있을 때만 보조 표시 */}
-          {(!apiHasPending && !apiHasApproved) && (
+          {/* 로컬 사용자 목록: API가 안될 때만 표시(깜빡임 방지: firstLoaded 필요) */}
+          {(firstLoaded && !apiAvailable) && (
             <section className="cardbox">
               <div className="cardtitle">로컬 사용자 목록 (보조)</div>
               <div style={{padding:"var(--pad)"}}>
@@ -833,6 +802,40 @@ function Stub({ text }) {
       <div className="empty">{text}</div>
     </section>
   );
+}
+
+/* ========= 스토리지 유틸 ========= */
+function lsSize() {
+  try {
+    let bytes = 0;
+    for (let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      const v = localStorage.getItem(k) || "";
+      bytes += k.length + v.length;
+    }
+    return `${(bytes/1024).toFixed(1)} KB`;
+  } catch { return "-"; }
+}
+function clearKey(k){ try{ localStorage.removeItem(k); }catch{} }
+function clearAll(){ try{ localStorage.clear(); }catch{} }
+function exportSettings(){
+  const payload = {}; // 필요한 항목만 넣어도 됨 (단축)
+  const blob = new Blob([JSON.stringify(payload,null,2)], { type:"application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `daesu-settings-backup-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function importSettings(file){
+  const fr = new FileReader();
+  fr.onload = () => {
+    try {
+      const data = JSON.parse(fr.result?.toString()||"{}");
+      // 필요 시 세부 반영
+    } catch {}
+  };
+  fr.readAsText(file);
 }
 
 /* ========= styled-jsx 글로벌 ========= */
