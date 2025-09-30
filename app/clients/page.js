@@ -6,8 +6,26 @@ import { useRouter } from "next/navigation";
 const loadClients = () => { try { return JSON.parse(localStorage.getItem("daesu:clients")||"[]"); } catch { return []; } };
 const saveClients  = (arr)=> { try { localStorage.setItem("daesu:clients", JSON.stringify(arr)); } catch {} };
 
+/* 승인 담당자 로드 유틸 */
+async function fetchApprovedStaffs(){
+  try{
+    const res = await fetch("/api/staff?approved=1", { cache: "no-store" });
+    if(!res.ok) throw new Error("staff api fail");
+    const data = await res.json(); // ["김부장","김실장",...]
+    if(!Array.isArray(data)) return [];
+    // 2~5글자 한글/한글+직함만(김부장 등)만 허용 + 중복 제거
+    const seen = new Set();
+    const only3 = data
+      .map(s=>String(s||"").trim())
+      .filter(s=>/^[가-힣A-Za-z]{2,5}$/.test(s))
+      .filter(s=>{ if(seen.has(s)) return false; seen.add(s); return true; });
+    return only3;
+  }catch(e){
+    return [];
+  }
+}
+
 /* constants */
-const STAFFS = ["김부장","김과장","강실장","소장","공동"];
 const GD_REGIONS = ["천호동","성내동","둔촌동","길동","암사동","명일동"];
 const SP_REGIONS = ["잠실동","삼전동","풍납동"];
 const ROOM_TYPES = ["원룸","1.5룸","2룸","3룸","4룸"];
@@ -16,12 +34,12 @@ const PROGRAMS  = ["LH/SH","허그","HF"];
 /* 연한색 팔레트 6가지 + 없음 */
 const COLOR_CHOICES = [
   { key:"",          name:"없음",      bg:"#ffffff", border:"#e5e7eb" },
-  { key:"#E0F2FE",   name:"하늘",      bg:"#E0F2FE", border:"#bae6fd" }, // sky-100
-  { key:"#DCFCE7",   name:"연두",      bg:"#DCFCE7", border:"#bbf7d0" }, // green-100
-  { key:"#FEF3C7",   name:"연노랑",    bg:"#FEF3C7", border:"#fde68a" }, // amber-100
-  { key:"#FFE4E6",   name:"연핑크",    bg:"#FFE4E6", border:"#fecdd3" }, // rose-100
-  { key:"#F3E8FF",   name:"연보라",    bg:"#F3E8FF", border:"#e9d5ff" }, // violet-100/200
-  { key:"#E5E7EB",   name:"연회색",    bg:"#F3F4F6", border:"#E5E7EB" }, // gray-100
+  { key:"#E0F2FE",   name:"하늘",      bg:"#E0F2FE", border:"#bae6fd" },
+  { key:"#DCFCE7",   name:"연두",      bg:"#DCFCE7", border:"#bbf7d0" },
+  { key:"#FEF3C7",   name:"연노랑",    bg:"#FEF3C7", border:"#fde68a" },
+  { key:"#FFE4E6",   name:"연핑크",    bg:"#FFE4E6", border:"#fecdd3" },
+  { key:"#F3E8FF",   name:"연보라",    bg:"#F3E8FF", border:"#e9d5ff" },
+  { key:"#E5E7EB",   name:"연회색",    bg:"#F3F4F6", border:"#E5E7EB" },
 ];
 
 /* utils */
@@ -50,7 +68,7 @@ export default function ClientsPage(){
     sourceAlias:"",
     programs:[],
     closed:false,
-    labelColor:"" // 행 배경색(선택)
+    labelColor:""
   };
 
   const [items,setItems] = useState([]);
@@ -64,8 +82,16 @@ export default function ClientsPage(){
   const [regionOpen,setRegionOpen] = useState(false);
   const regionRef = useRef(null);
 
-  // ★ 최초 진입 시: 서버(DB)에서 최신을 불러오고, localStorage에도 동기화
+  // ★ 승인된 담당자 목록 (설정 연동)
+  const [staffs, setStaffs] = useState([]);
+
+  // 최초 로드: 담당자 → 고객목록(서버→로컬 캐시)
   useEffect(()=>{
+    (async ()=>{
+      const ss = await fetchApprovedStaffs();
+      setStaffs(ss);
+    })();
+
     (async ()=>{
       try{
         const res = await fetch("/api/clients", { cache:"no-store" });
@@ -76,7 +102,6 @@ export default function ClientsPage(){
           return;
         }
       }catch(e){}
-      // 서버 실패 시 로컬 대체
       setItems(loadClients());
     })();
   },[]);
@@ -121,9 +146,10 @@ export default function ClientsPage(){
     return arr.length? arr.join("/") : "-";
   };
 
-  // ★ 저장 시: 서버에도 업서트(POST /api/clients), 성공하면 목록 재조회
+  // ★ 저장 시: 승인된 담당자만 허용
   const onSave = async ()=>{
     if(!draft.staff) return alert("담당자를 선택해 주세요.");
+    if(!staffs.includes(draft.staff)) return alert("승인된 담당자만 선택할 수 있습니다. 설정에서 승인 후 사용하세요.");
     if(!draft.inquiryDate) return alert("문의날짜를 선택해 주세요.");
     if(!draft.depositW && !draft.monthlyW) return alert("보증금/월세 중 최소 하나는 입력해 주세요.");
     if(!draft.regionAny && !(draft.regions && draft.regions.length)) return alert("희망지역을 선택해 주세요.");
@@ -142,7 +168,7 @@ export default function ClientsPage(){
       labelColor: draft.labelColor || ""
     };
 
-    // 낙관적 업데이트 (화면 즉시 반영)
+    // 낙관적 업데이트
     const next = isEdit ? items.map(i=>i.id===norm.id? norm : i) : [...items, norm];
     setItems(next); saveClients(next);
 
@@ -152,7 +178,6 @@ export default function ClientsPage(){
         headers: { "Content-Type":"application/json" },
         body: JSON.stringify(norm)
       });
-      // 서버 기준 최신 재조회
       const res = await fetch("/api/clients", { cache:"no-store" });
       const data = await res.json();
       if (Array.isArray(data)) { setItems(data); saveClients(data); }
@@ -162,7 +187,6 @@ export default function ClientsPage(){
     close();
   };
 
-  // (참고) 현재는 서버 삭제 API가 없으므로 클라이언트/로컬만 삭제
   const onDelete = ()=>{
     if(!isEdit) return;
     if(!confirm("삭제하시겠습니까?")) return;
@@ -243,12 +267,17 @@ export default function ClientsPage(){
             <button className="x" onClick={close} aria-label="닫기">×</button>
             <div className="mtitle">{isEdit ? "고객 수정" : "고객 등록"}</div>
 
-            {/* 담당 */}
+            {/* 담당 (승인 목록 연동) */}
             <div className="frow">
               <label>담당 <i className="req">*</i></label>
-              <select value={draft.staff} onChange={e=>setDraft({...draft, staff:e.target.value})}>
+              <select
+                value={draft.staff}
+                onChange={e=>setDraft({...draft, staff:e.target.value})}
+              >
                 <option value="">선택</option>
-                {STAFFS.map(s=><option key={s} value={s}>{s}</option>)}
+                {staffs.map(s=>(
+                  <option key={s} value={s}>{s}</option>
+                ))}
               </select>
             </div>
 
@@ -278,7 +307,11 @@ export default function ClientsPage(){
               <label>희망지역 <i className="req">*</i></label>
               <div className="region-picker">
                 <button type="button" className={"pickerBtn"+((draft.regions.length||draft.regionAny)?" has":"")} onClick={()=>setRegionOpen(v=>!v)} disabled={draft.regionAny}>
-                  {regionsLabel}
+                  {draft.regionAny
+                    ? "상관없음"
+                    : (draft.regions.length
+                        ? (draft.regions.length<=3 ? draft.regions.join(", ") : `${draft.regions.slice(0,3).join(", ")} 외 ${draft.regions.length-3}`)
+                        : "클릭하여 선택")}
                 </button>
                 <div className="anyLine">
                   <label className="miniCk">
@@ -315,7 +348,7 @@ export default function ClientsPage(){
               </div>
             </div>
 
-            {/* 요구사항 (같은 줄, 작게) */}
+            {/* 요구사항 */}
             <div className="frow">
               <label>요구사항</label>
               <div className="inlineOpts">
@@ -373,7 +406,7 @@ export default function ClientsPage(){
               </div>
             </div>
 
-            {/* ★ 표시색 선택 */}
+            {/* 표시색 선택 */}
             <div className="frow">
               <label>표시색(선택)</label>
               <div className="colorRow">
@@ -411,7 +444,7 @@ export default function ClientsPage(){
       <style jsx>{`
         .wrap{min-height:100svh;background:linear-gradient(180deg,#fff,#f6f7f8);color:#111;padding:12px}
         .bar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin-bottom:8px}
-        .left{justify-self:start}.center{justify-self:center}.right{justify-self:end}
+        .left{justify-self:start}.center{justify-self:center}.right{justify-self=end}
         .title{font-weight:900;font-size:18px}
         .back{display:inline-flex;gap:8px;align-items:center;border:1px solid #e5e7eb;background:#fff;border-radius:10px;padding:8px 12px}
         .back .arrow{font-weight:900}
@@ -442,7 +475,7 @@ export default function ClientsPage(){
         .region,.rooms{white-space:normal;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
         .empty{padding:20px;text-align:center;color:#888}
 
-        /* 의뢰종료 시: 검정 바탕 + 희미한 글자 */
+        /* 의뢰종료 시 */
         .row.closed{ background:#0b0b0b !important; }
         .row.closed .cell{ color:#c7c7c7; }
 

@@ -1,34 +1,43 @@
-﻿import { NextResponse } from "next/server";
-import { MongoClient } from "mongodb";
+import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-let client: MongoClient | null = null;
-async function getClient() {
-  if (client) return client;
-  client = new MongoClient(process.env.MONGODB_URI!);
-  await client.connect();
-  return client;
+const PENDING_KEY = "pending-users";
+
+function json(data: any, init: ResponseInit = {}) {
+  const headers = new Headers(init.headers);
+  // 캐시 완전 금지
+  headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  headers.set("Pragma", "no-cache");
+  headers.set("Expires", "0");
+  return NextResponse.json(data, { ...init, headers });
 }
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
-    // 관리자 헤더 없으면 빈 배열(보안상)
-    if (req.headers.get("x-role") !== "admin") return NextResponse.json([]);
-
-    const cli = await getClient();
-    const db  = cli.db(process.env.MONGODB_DB);
-    const col = db.collection("users");
-
-    const list = await col.find(
-      { status: "pending" },
-      { projection: { _id:0, id:1, email:1, displayName:1, status:1, createdAt:1, updatedAt:1 } }
-    ).sort({ createdAt: -1 }).toArray();
-
-    const fixed = list.map(u => ({ ...u, id: u.id || u.email }));
-    return NextResponse.json(fixed);
-  } catch {
-    return NextResponse.json([]);
+    const raw = (global as any)[PENDING_KEY] || "[]";
+    const rows = JSON.parse(raw) as Array<{ email: string; name?: string; createdAt?: string }>;
+    return json(rows);
+  } catch (e: any) {
+    return json({ error: e?.message || "error" }, { status: 500 });
   }
+}
+
+export async function POST(req: Request) {
+  // (선택) 테스트용 등록 유지
+  const body = await req.json().catch(() => ({}));
+  const list = JSON.parse((global as any)[PENDING_KEY] || "[]");
+  list.push({ email: String(body.email || "").toLowerCase(), name: String(body.name || ""), createdAt: new Date().toISOString() });
+  (global as any)[PENDING_KEY] = JSON.stringify(list);
+  return json({ ok: true });
+}
+
+export async function DELETE(req: Request) {
+  const url = new URL(req.url);
+  const email = (url.searchParams.get("email") || "").toLowerCase();
+  const list: any[] = JSON.parse((global as any)[PENDING_KEY] || "[]");
+  const next = list.filter((x) => (x?.email || "").toLowerCase() !== email);
+  (global as any)[PENDING_KEY] = JSON.stringify(next);
+  return json({ ok: true, deleted: list.length - next.length });
 }

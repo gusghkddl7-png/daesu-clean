@@ -16,7 +16,6 @@ const HOLIDAYS_2025 = {
 };
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const typeClass = t => t==="가계약" ? "blue" : (t==="본계약"||t==="잔금및입주" ? "red" : "black");
-const staffList = ["김부장","김과장","강실장","소장"];
 const typeList  = ["투어","가계약","본계약","잔금및입주"];
 const timeOptions = (()=>{ const out=[]; for(let m=540;m<=1200;m+=15){ const h=String(Math.floor(m/60)).padStart(2,"0"); const mm=String(m%60).padStart(2,"0"); out.push(`${h}:${mm}`);} return out; })();
 const SEP = "\u200A/\u200A"; // 슬래시 양옆 아주 촘촘
@@ -56,6 +55,27 @@ async function apiUpsert(item){
   return await res.json();
 }
 
+// 승인된 담당자 목록 가져오기
+async function fetchApprovedStaff(){
+  try{
+    const res = await fetch("/api/staff?approved=1", { cache: "no-store" });
+    if(!res.ok) throw new Error("staff api 200 아님");
+    const arr = await res.json();
+    // 3글자만 허용 + 문자열만
+    const list = Array.isArray(arr) ? arr
+      .map(s => typeof s === "string" ? s.trim() : "")
+      .filter(Boolean)
+      .filter(n => n.length === 3)
+      .filter((v,i,self)=> self.indexOf(v)===i )
+      : [];
+    return list;
+  }catch(e){
+    console.warn("담당자 불러오기 실패. 기본값 사용", e);
+    // 임시 기본(오프라인/개발 대비)
+    return ["김부장","김과장","강실장"];
+  }
+}
+
 export default function ScheduleClient(){
   const router = useRouter();
   const [cursor,setCursor] = useState(()=>{ const n=new Date(); return new Date(n.getFullYear(),n.getMonth(),1); });
@@ -63,13 +83,23 @@ export default function ScheduleClient(){
   const [ready,setReady]   = useState(false);
   const [loading,setLoading] = useState(false);
 
-  // 최초 로드: 서버에서 가져오고, 로컬에도 캐시(있으면 먼저 보여주기)
+  // 담당자 옵션 (연동)
+  const [staffOptions, setStaffOptions] = useState([]);
+
+  // 최초 로드: 담당자 옵션 → 일정 목록
   useEffect(()=>{
-    try{
-      const cached = JSON.parse(localStorage.getItem("daesu:events")||"[]");
-      if(Array.isArray(cached)) setEvents(cached.map(e=>({ pinned:false, ...e })));
-    }catch{}
     (async()=>{
+      // 1) 승인된 담당자
+      const staff = await fetchApprovedStaff();
+      setStaffOptions(staff);
+
+      // 2) 일정 캐시 먼저
+      try{
+        const cached = JSON.parse(localStorage.getItem("daesu:events")||"[]");
+        if(Array.isArray(cached)) setEvents(cached.map(e=>({ pinned:false, ...e })));
+      }catch{}
+
+      // 3) 서버 fetch
       try{
         setLoading(true);
         const list = await apiGetAll();
@@ -133,8 +163,15 @@ export default function ScheduleClient(){
     if(!draft.time)  return alert("시간을 선택해 주세요.");
     if(draft.phone4 && !/^\d{4}$/.test(draft.phone4)) return alert("전화번호 뒷자리(4자리)를 입력해 주세요.");
 
+    // 3글자 제한 + 승인목록에 존재하는지 최종 검증
+    const staffName = (draft.staff||"").trim();
+    if(staffName.length!==3 || !staffOptions.includes(staffName)){
+      return alert("승인된 3글자 담당자만 선택할 수 있습니다.");
+    }
+
     const norm = {
       ...draft,
+      staff: staffName, // 보존
       id: draft.id || ("t"+Date.now()),
       pinned: !!draft.pinned,
       canceled: !!draft.canceled,
@@ -256,9 +293,12 @@ export default function ScheduleClient(){
             </div>
 
             <div className="row"><label>담당자</label>
-              <select value={draft.staff} onChange={e=>setDraft({...draft, staff:e.target.value})}>
+              <select
+                value={draft.staff}
+                onChange={e=>setDraft({...draft, staff:e.target.value})}
+              >
                 <option value="">선택</option>
-                {staffList.map(s=><option key={s} value={s}>{s}</option>)}
+                {staffOptions.map(s=><option key={s} value={s}>{s}</option>)}
               </select>
             </div>
 
@@ -270,7 +310,12 @@ export default function ScheduleClient(){
             </div>
 
             <div className="row"><label>전화 뒷4자리</label>
-              <input maxLength={4} value={draft.phone4} onChange={e=>setDraft({...draft, phone4:e.target.value.replace(/\D/g,"").slice(0,4)})} placeholder="예: 1234"/>
+              <input
+                maxLength={4}
+                value={draft.phone4}
+                onChange={e=>setDraft({...draft, phone4:e.target.value.replace(/\D/g,"").slice(0,4)})}
+                placeholder="예: 1234"
+              />
             </div>
 
             <div className="row"><label>고객 별칭</label>

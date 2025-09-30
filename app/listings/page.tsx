@@ -3,6 +3,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+/** ===== 타입 ===== */
 type Deal = "월세" | "전세" | "매매";
 type Listing = {
   _id?: string;
@@ -38,6 +39,7 @@ type Listing = {
   photos?: { name: string; dataUrl: string }[];
 };
 
+/** ===== 유틸 ===== */
 const fmtWon = (v?: number) =>
   v === 0 || typeof v === "number" ? v.toLocaleString("ko-KR") : "-";
 const fmtDate = (iso: string) => {
@@ -64,8 +66,8 @@ function useDebounced<T>(val: T, ms = 200) {
 // 비고: 1줄 + 1줄(작게)
 function TwoLineCell({
   text,
-  firstLen = 20,
-  secondLen = 20,
+  firstLen = 30,
+  secondLen = 30,
 }: {
   text?: string;
   firstLen?: number;
@@ -121,6 +123,7 @@ function fmtPhone(raw?: string) {
   return raw || "-";
 }
 
+/** ===== 탭/분류 ===== */
 const TABS = [
   "월세매물장",
   "전세매물장",
@@ -148,7 +151,7 @@ const catOf = (bt?: string): BtCat | "기타" => {
   );
 };
 
-// 메모/텍스트에서 LH/SH, HUG/HF를 유추 (필드가 없을 수 있어서)
+// 메모/텍스트에서 LH/SH, HUG/HF 유추
 function guessToken(listing: Listing, token: "LH" | "SH" | "HUG" | "HF") {
   const hay = [
     listing.memo,
@@ -162,6 +165,7 @@ function guessToken(listing: Listing, token: "LH" | "SH" | "HUG" | "HF") {
   return hay.includes(token);
 }
 
+/** ===== 페이지 ===== */
 export default function ListingsPage() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -170,13 +174,32 @@ export default function ListingsPage() {
   const [loadErr, setLoadErr] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
 
+  // 승인된 담당자 목록 (3글자만)
+  const [agents, setAgents] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/staff?approved=1", { cache: "no-store" });
+        const list = (await res.json()) as string[];
+        const only3 = (Array.isArray(list) ? list : []).filter(
+          (s) => typeof s === "string" && s.trim().length === 3
+        );
+        if (alive) setAgents(only3);
+      } catch {
+        if (alive) setAgents([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
   useEffect(() => {
     let alive = true;
     (async () => {
       setLoading(true);
       setLoadErr("");
       try {
-        const base = process.env.NEXT_PUBLIC_BASE_URL || ""; // 없으면 상대경로
+        const base = process.env.NEXT_PUBLIC_BASE_URL || "";
         const url = `${base}/api/listings`.replace(/\/{2,}/g, "/").replace(":/", "://");
         const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -191,22 +214,24 @@ export default function ListingsPage() {
         if (!alive) return;
         console.error("load listings error", e);
         setLoadErr("매물 목록을 불러오지 못했습니다. (오프라인/서버 오류)");
-        setItems([]); // 폴백 데이터가 있으면 여기서 주입 가능
+        setItems([]);
       } finally {
         if (alive) setLoading(false);
       }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, []);
 
+  /** ===== 필터 상태 & URL 동기화 ===== */
   const [tab, setTab] = useState<Tab>((getQS(sp, "tab") as Tab) || "");
   const [q, setQ] = useState(getQS(sp, "q"));
   const [lhsh, setLhsh] = useState(getQS(sp, "lhsh")); // LH/SH
   const [guar, setGuar] = useState(getQS(sp, "guar")); // HUG/HF
   const [onlyVacant, setOnlyVacant] = useState(getQS(sp, "vacant") === "1");
   const [hideCompleted, setHideCompleted] = useState(getQS(sp, "hideDone") === "1");
+
+  // 새로 추가: 담당자 필터
+  const [agentSel, setAgentSel] = useState(getQS(sp, "agent"));
 
   const [advOpen, setAdvOpen] = useState(false);
 
@@ -229,13 +254,13 @@ export default function ListingsPage() {
     () => (getQS(sp, "bt") ? (getQS(sp, "bt") as string).split("|") : [])
   );
 
-  // URL 동기화
   useEffect(() => setQS("tab", tab || null), [tab]);
   useEffect(() => setQS("q", q || null), [q]);
   useEffect(() => setQS("lhsh", lhsh || null), [lhsh]);
   useEffect(() => setQS("guar", guar || null), [guar]);
   useEffect(() => setQS("vacant", onlyVacant ? "1" : null), [onlyVacant]);
   useEffect(() => setQS("hideDone", hideCompleted ? "1" : null), [hideCompleted]);
+  useEffect(() => setQS("agent", agentSel || null), [agentSel]);
 
   useEffect(() => setQS("depMin", depMin || null), [depMin]);
   useEffect(() => setQS("depMax", depMax || null), [depMax]);
@@ -254,6 +279,7 @@ export default function ListingsPage() {
 
   useEffect(() => setQS("bt", btSel.length ? btSel.join("|") : null), [btSel]);
 
+  /** ===== 필터 ===== */
   const tabFilter = (x: Listing) => {
     switch (tab) {
       case "월세매물장":
@@ -294,6 +320,8 @@ export default function ListingsPage() {
     if (lhsh === "SH") r = r.filter((x) => guessToken(x, "SH"));
     if (guar === "HUG") r = r.filter((x) => guessToken(x, "HUG"));
     if (guar === "HF") r = r.filter((x) => guessToken(x, "HF"));
+
+    if (agentSel) r = r.filter((x) => x.agent === agentSel);
 
     if (onlyVacant) r = r.filter((x) => x.vacant);
     if (hideCompleted && !searching) r = r.filter((x) => !x.completed);
@@ -366,6 +394,7 @@ export default function ListingsPage() {
     btSel,
     lhsh,
     guar,
+    agentSel,
   ]);
 
   const resetAdvanced = () => {
@@ -467,6 +496,19 @@ export default function ListingsPage() {
             placeholder="주소·메모·코드·유형 검색"
             className="border rounded-lg px-3 py-1.5 w-64"
           />
+          {/* 담당자 필터 */}
+          <select
+            value={agentSel}
+            onChange={(e) => setAgentSel(e.target.value)}
+            className="border rounded-lg px-2 py-1.5"
+            title="담당자 필터(설정에서 승인된 3글자만 표시)"
+          >
+            <option value="">{agents.length ? "담당자(전체)" : "담당자(없음)"}</option>
+            {agents.map((a) => (
+              <option key={a} value={a}>{a}</option>
+            ))}
+          </select>
+
           <select
             value={lhsh}
             onChange={(e) => setLhsh(e.target.value)}
@@ -527,7 +569,7 @@ export default function ListingsPage() {
             <colgroup>
               <col className="w-[34px]" />
               <col className="w-[110px]" />
-              <col className="w-[65px]" />
+              <col className="w-[70px]" />
               <col className="w-[80px]" />
               <col className="w-[80px]" />
               <col className="w-[110px]" />
@@ -541,7 +583,7 @@ export default function ListingsPage() {
               <col className="w-[130px]" />
               <col className="w-[150px]" />
               <col className="w-[70px]" />
-              <col className="w-[460px]" />
+              <col className="w-[400px]" />
             </colgroup>
 
             <thead className="bg-gray-100">
@@ -570,19 +612,24 @@ export default function ListingsPage() {
               {rows.map((r, idx) => {
                 const hasPhoto = !!(r as any).photos?.length;
                 const clickable = !!(r as any)._id;
-                const baseBg =
-                  r.labelColor ? { background: r.labelColor } : undefined;
+                const isDone = !!r.completed;
+
+                // 완료건은 라벨색을 무시하고 어둡게
+                const baseStyle = isDone
+                  ? { background: "#0b0b0b", color: "#cfcfcf" }
+                  : (r.labelColor ? { background: r.labelColor } : undefined);
+
                 return (
                   <tr
                     key={`${(r as any)._id ?? r.id ?? idx}`}
                     onClick={() => clickable && routerToEdit(r)}
                     className={
                       "border-t " +
-                      (r.vacant ? "bg-pink-50 " : "") +
+                      (r.vacant && !isDone ? "bg-pink-50 " : "") +
                       (clickable ? "cursor-pointer hover:bg-blue-50 " : "opacity-90 ")
                     }
                     title={clickable ? "클릭하여 수정하기" : undefined}
-                    style={baseBg}
+                    style={baseStyle}
                   >
                     <td className="px-2 py-2">
                       {hasPhoto ? <span title="사진 있음">📷</span> : null}

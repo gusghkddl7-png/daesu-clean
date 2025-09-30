@@ -285,7 +285,7 @@ export default function Page() {
     }
   }
 
-  // 관리자 토글 (로컬 상태)
+  // === 관리자 토글 (로컬 상태) ===
   function toggleAdmin(id){
     setAdminIds(prev => {
       const next = new Set(prev);
@@ -294,6 +294,54 @@ export default function Page() {
       return next;
     });
     toast.push("권한 변경");
+  }
+
+  // === 사용자 삭제(관리자 삭제 버튼) ===
+  async function removeUser(idOrEmail){
+    const raw = (idOrEmail||"").trim();
+    if (!raw) return;
+    if (!confirm(`정말 삭제할까요?\n${raw}`)) return;
+
+    const key = norm(raw);
+    const prevPending = pending, prevApproved = approved, prevUsers = users;
+
+    // 낙관적 제거
+    setPending(p => (p||[]).filter(u => norm(u.email||u.id)!==key));
+    setApproved(a => (a||[]).filter(u => norm(u.email||u.id)!==key));
+
+    try {
+      let ok = false;
+
+      // 1순위: 전용 API
+      const res1 = await apiPost("/api/users/remove", raw.includes("@") ? { email: raw } : { id: raw }, { headers:{ "x-role":"admin"} });
+      if (res1 && res1.ok !== false) ok = true;
+
+      // 2순위: fallsback DELETE 쿼리 방식
+      if (!ok) {
+        const r = await fetch(`/api/users?${raw.includes("@") ? `email=${encodeURIComponent(raw)}` : `id=${encodeURIComponent(raw)}`}`, {
+          method:"DELETE", cache:"no-store", headers:{ "x-role":"admin" }
+        });
+        ok = r.ok;
+      }
+
+      // 3순위: 로컬 폴백
+      if (!ok) {
+        const next = (prevUsers||[]).filter(u => norm(u.id)!==key && norm(u.email)!==key);
+        setUsers(next); saveUsers(next);
+        ok = true; // 로컬 기준 성공 처리
+      }
+
+      if (ok) {
+        toast.push("삭제 완료");
+        await loadPeople();
+      } else {
+        throw new Error("remove failed");
+      }
+    } catch {
+      // 롤백
+      setPending(prevPending); setApproved(prevApproved); setUsers(prevUsers);
+      toast.push("삭제 실패","error");
+    }
   }
 
   // 로컬-only 조작들
@@ -506,6 +554,7 @@ export default function Page() {
                           }
                         >승인</button>
                         <button className="mini" onClick={()=>rejectUserLocal(u.id)}>거절</button>
+                        <button className="mini" onClick={()=>removeUser(ident)}>삭제</button>
                       </div>
                     </div>
                   );
@@ -529,6 +578,7 @@ export default function Page() {
                       <button className={`mini ${isAdmin?"on":""}`} onClick={()=>toggleAdmin(a.id)}>
                         {isAdmin?"관리자 해제":"관리자 지정"}
                       </button>
+                      <button className="mini" onClick={()=>removeUser(a.email || a.id)}>삭제</button>
                     </li>
                   );
                 })}
@@ -557,6 +607,7 @@ export default function Page() {
                         setUsers(next); saveUsers(next); loadPeople();
                       }}>거절</button>
                       <button className="mini" onClick={()=>toggleAdmin(u.id)}>{adminIds.has(u.id)?"관리자 해제":"관리자 지정"}</button>
+                      <button className="mini" onClick={()=>removeUser(u.email || u.id)}>삭제</button>
                     </div>
                   </div>
                 ))}
@@ -567,7 +618,7 @@ export default function Page() {
         </>
       )}
 
-      {/* NOTICE */}
+      {/* NOTICE — 가로 스크롤 레이아웃 */}
       {tab==="notice" && (
         <section className="cardbox">
           <div className="cardtitle" style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
@@ -580,61 +631,66 @@ export default function Page() {
 
           <div style={{ padding: "var(--pad)", display: "grid", gap: "var(--gap)" }}>
             <input className="search" placeholder="제목/내용 검색" value={nSearch} onChange={e=>setNSearch(e.target.value)} />
-            <input
-              className="search"
-              placeholder="제목"
-              value={nTitle}
-              onChange={e=>setNTitle(e.target.value)}
-              onKeyDown={(e)=>{ if(e.key==="Enter"){ e.preventDefault(); createNotice(); } }}
-            />
-            <textarea className="search" placeholder="내용" value={nBody} rows={4} onChange={e=>setNBody(e.target.value)} />
-            <div style={{ display:"flex", gap:"var(--gap)", alignItems:"center" }}>
-              <button className="mini" onClick={createNotice} disabled={!nTitle.trim() || !nBody.trim() || busyN}>
+            <div className="row2">
+              <input
+                className="search"
+                placeholder="제목"
+                value={nTitle}
+                onChange={e=>setNTitle(e.target.value)}
+                onKeyDown={(e)=>{ if(e.key==="Enter"){ e.preventDefault(); createNotice(); } }}
+              />
+              <button className="mini on" onClick={createNotice} disabled={!nTitle.trim() || !nBody.trim() || busyN}>
                 {busyN?"저장 중…":"공지 등록"}
               </button>
             </div>
+            <textarea className="search" placeholder="내용" value={nBody} rows={4} onChange={e=>setNBody(e.target.value)} />
           </div>
 
           {filteredNotices.length===0 ? (
             <div className="empty">등록된 공지가 없습니다.</div>
           ) : (
-            <ul className="gridlist" style={{ paddingTop: 0 }}>
+            <div className="hscroll">
               {filteredNotices.map(n=>(
-                <li key={n.id} className="chiprow" style={{ alignItems:"start" }}>
-                  <div style={{maxWidth:"calc(100% - 220px)"}}>
-                    {editId===n.id ? (
-                      <>
+                <div key={n.id} className="ncard">
+                  <div className="nhead">
+                    <div className="ntitle">
+                      {editId===n.id ? (
                         <input className="search" value={editTitle} onChange={e=>setEditTitle(e.target.value)} placeholder="제목" />
-                        <textarea className="search" value={editBody} rows={3} onChange={e=>setEditBody(e.target.value)} placeholder="내용" />
-                      </>
-                    ) : (
-                      <>
-                        <div className="name" style={{display:"flex", gap:8, alignItems:"center"}}>
+                      ) : (
+                        <>
                           {n.pinned && <span style={{fontSize:12}}>📌</span>}
-                          {n.title}
-                        </div>
-                        <div className="meta">{new Date(n.createdAt).toLocaleString()}</div>
-                        <div style={{fontSize:13, color:"var(--muted)", marginTop:4, whiteSpace:"pre-wrap"}}>{n.body}</div>
-                      </>
+                          <span className="t">{n.title}</span>
+                        </>
+                      )}
+                    </div>
+                    <div className="ntime">{new Date(n.createdAt).toLocaleString()}</div>
+                  </div>
+
+                  <div className="nbody">
+                    {editId===n.id ? (
+                      <textarea className="search" rows={6} value={editBody} onChange={e=>setEditBody(e.target.value)} placeholder="내용" />
+                    ) : (
+                      <div className="txt">{n.body}</div>
                     )}
                   </div>
-                  <div style={{ display:"grid", gap:6 }}>
+
+                  <div className="nops">
                     {editId===n.id ? (
                       <>
-                        <button className="mini" onClick={saveEdit} disabled={!editTitle.trim() || busyN}>저장</button>
+                        <button className="mini on" onClick={saveEdit} disabled={!editTitle.trim() || busyN}>저장</button>
                         <button className="mini" onClick={()=>{ setEditId(null); setEditTitle(""); setEditBody(""); }}>취소</button>
                       </>
                     ) : (
                       <>
                         <button className="mini" onClick={()=>togglePin(n)}>{n.pinned?"핀 해제":"핀 고정"}</button>
-                        <button className="mini" onClick={()=>startEdit(n)}>수정</button>
+                        <button className="mini" onClick={()=>{ setEditId(n.id); setEditTitle(n.title); setEditBody(n.body||""); }}>수정</button>
                         <button className="mini" onClick={()=>deleteNotice(n.id)}>삭제</button>
                       </>
                     )}
                   </div>
-                </li>
+                </div>
               ))}
-            </ul>
+            </div>
           )}
         </section>
       )}
@@ -819,7 +875,7 @@ function lsSize() {
 function clearKey(k){ try{ localStorage.removeItem(k); }catch{} }
 function clearAll(){ try{ localStorage.clear(); }catch{} }
 function exportSettings(){
-  const payload = {}; // 필요한 항목만 넣어도 됨 (단축)
+  const payload = {}; // 필요한 항목만 넣어도 됨
   const blob = new Blob([JSON.stringify(payload,null,2)], { type:"application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -886,6 +942,20 @@ const STYLES = `
   .adminchip{margin-left:auto;border:1px solid var(--border);border-radius:999px;padding:4px 8px;font-size:12px;background:var(--chip-bg)}
   .adminchip.on{border-color:transparent;background:var(--accent);color:#fff}
 
+  /* 공지 — 가로 스크롤 카드 */
+  .hscroll{display:flex;gap:12px;overflow:auto;padding:10px}
+  .ncard{
+    min-width:320px; max-width:420px; flex:0 0 auto;
+    border:1px solid var(--border); border-radius:10px; padding:10px; background:var(--card)
+  }
+  .nhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+  .ntitle{display:flex;gap:6px;align-items:center;min-width:0}
+  .ntitle .t{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+  .ntime{font-size:11px;color:var(--muted);white-space:nowrap}
+  .nbody{min-height:90px}
+  .nbody .txt{white-space:pre-wrap;line-height:1.45;color:var(--fg);font-size:13px}
+  .nops{display:flex;gap:6px;justify-content:flex-end;margin-top:8px}
+
   .gridlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:var(--gap);padding:10px}
   .chiprow{border:1px solid var(--border);border-radius:10px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;background:var(--card)}
   .chiprow .name{font-weight:700}.chiprow .meta{font-size:11px;color:var(--muted)}
@@ -905,6 +975,8 @@ const STYLES = `
   .pv-body{display:grid;gap:var(--gap);padding:var(--pad)}
   .pv-chip{display:inline-block;padding:4px 8px;border-radius:999px;border:1px solid var(--border);background:var(--chip-bg);font-size:12px}
   .pv-row{display:flex;gap:8px;flex-wrap:wrap}
+
+  .row2{display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center}
 
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:12px;z-index:100}
   .panel{width:560px;max-width:96%;background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.28)}

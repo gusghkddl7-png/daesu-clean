@@ -1,6 +1,7 @@
 ﻿"use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 /** ====== 타입 ====== */
 type ListingStatus = "공개" | "비공개" | "거래중" | "거래완료";
@@ -10,7 +11,7 @@ type ListingType =
 interface Listing {
   id: string;
   date: string;                // 날짜(등록/갱신)
-  manager: "김부장" | "김과장" | "강실장" | "소장" | "공동매물";
+  manager: string;             // 담당자 (승인된 3글자 이름만 표시)
   type: ListingType;           // 건물유형
   deposit?: number;            // 보증금(만원)
   rent?: number;               // 월세(만원)
@@ -99,6 +100,7 @@ const px = (...c: Array<string | false | null | undefined>) => c.filter(Boolean)
 function rowBg(l: Listing): string {
   if (l.status === "거래완료") return "bg-black text-white/70";
   if (l.saved) return "bg-amber-50";
+  // 담당자에 따른 라이트 하이라이트(승인/미승인 무관, 시각적 구분만)
   switch (l.manager) {
     case "공동매물": return "bg-green-50";
     case "김부장":   return "bg-blue-50";
@@ -110,21 +112,45 @@ function rowBg(l: Listing): string {
 
 /** ====== 메인 컴포넌트 ====== */
 export default function ListingsClient() {
+  const router = useRouter();
   const [items, setItems] = useState<Listing[]>(INIT);
   const [q, setQ] = useState("");
   const [vacantOnly, setVacantOnly] = useState(false);
   const [hideCompleted, setHideCompleted] = useState(true);
 
-  const query = q.trim().toLowerCase();
+  // 승인된 담당자 목록 불러오기 (설정 연동)
+  const [approved, setApproved] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/staff?approved=1", { cache: "no-store" });
+        const arr = await res.json();
+        const only3 = (Array.isArray(arr) ? arr : []).filter(
+          (s) => typeof s === "string" && s.trim().length === 3
+        );
+        if (alive) setApproved(new Set(only3));
+      } catch {
+        if (alive) setApproved(new Set());
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
+  // 표시용: 승인된 이름만 보여주기(미승인은 공백)
+  const showManager = (name?: string) =>
+    name && approved.has(name.trim()) ? name.trim() : "";
+
+  const query = q.trim().toLowerCase();
   const saved = useMemo(() => items.filter(i => i.saved), [items]);
 
   const filtered = useMemo(() => {
     return items.filter((l) => {
       if (vacantOnly && !l.vacant) return false;
-      // 거래완료 숨기기는 "검색어가 비어있을 때만" 숨김 -> 검색하면 보이도록
+      // 거래완료 숨김은 검색어 없을 때만 적용
       if (hideCompleted && query === "" && l.status === "거래완료") return false;
 
+      // 검색은 원본 값 기준(담당자 포함)으로 수행
       const hay = [
         l.address, l.type, l.manager, l.memo,
         l.landlord, l.landlordPhone, l.dong, l.ho
@@ -166,7 +192,7 @@ export default function ListingsClient() {
         </button>
         <button
           className="bg-blue-600 text-white rounded-lg px-3 py-2 hover:bg-blue-700"
-          onClick={() => alert("매물등록 폼은 다음 단계에서 연결할게요 🙂")}
+          onClick={() => router.push("/listings/new")}
         >
           + 매물등록
         </button>
@@ -201,7 +227,7 @@ export default function ListingsClient() {
                 </tr>
               </thead>
               <tbody>
-                {saved.map((l) => <Row key={l.id} l={l} onSave={toggleSave} />)}
+                {saved.map((l) => <Row key={l.id} l={l} onSave={toggleSave} showManager={showManager} />)}
               </tbody>
             </table>
           </div>
@@ -220,7 +246,7 @@ export default function ListingsClient() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((l) => <Row key={l.id} l={l} onSave={toggleSave} />)}
+            {filtered.map((l) => <Row key={l.id} l={l} onSave={toggleSave} showManager={showManager} />)}
           </tbody>
         </table>
       </div>
@@ -236,12 +262,21 @@ function Td({ children, className }: { children: React.ReactNode, className?: st
   return <td className={px("px-3 py-2 border-b align-middle whitespace-nowrap", className)}>{children}</td>;
 }
 
-function Row({ l, onSave }: { l: Listing; onSave: (id: string) => void }) {
+function Row({
+  l,
+  onSave,
+  showManager,
+}: {
+  l: Listing;
+  onSave: (id: string) => void;
+  showManager: (name?: string) => string;
+}) {
   const done = l.status === "거래완료";
+  const mgr = showManager(l.manager);
   return (
     <tr className={px("border-b", rowBg(l), done && "border-white/20")}>
       <Td>{l.date}</Td>
-      <Td>{l.manager}</Td>
+      <Td>{mgr || ""}</Td>
       <Td>{l.type}</Td>
       <Td>{won(l.deposit)} / {won(l.rent)}</Td>
       <Td>{l.tenantLives ? "거주중" : "공실"}</Td>

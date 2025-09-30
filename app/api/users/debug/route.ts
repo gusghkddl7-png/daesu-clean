@@ -1,38 +1,57 @@
-// app/api/users/debug/route.ts
 import { NextResponse } from "next/server";
-import { MongoClient } from "mongodb";
+import clientPromise from "../../../../lib/db";
 
-let client: MongoClient | null = null;
-async function getClient() {
-  if (client) return client;
-  client = new MongoClient(process.env.MONGODB_URI as string);
-  await client.connect();
-  return client;
-}
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-export async function GET() {
+const DB = process.env.MONGODB_DB || "daesu";
+const norm = (s:any)=>String(s??"").trim().replace(/,/g,".").toLowerCase();
+
+export async function GET(req: Request) {
   try {
-    const cli = await getClient();
-    const db = cli.db(process.env.MONGODB_DB);
-    const collections = await db.listCollections().toArray();
-    const colNames = collections.map(c => c.name);
+    const url = new URL(req.url);
+    const email = norm(url.searchParams.get("email"));
+    const cli = await clientPromise;
+    const db  = cli.db(DB);
 
-    const users = db.collection("users");
-    const count = await users.countDocuments({});
-    const latest5 = await users
-      .find({}, { projection: { _id: 0 } })
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .toArray();
+    const collections = [
+      "staff",
+      "pending_users","users_pending","join_requests","users_requests",
+      "users"
+    ];
 
-    return NextResponse.json({
+    const result: any = {
       ok: true,
-      db: db.databaseName,
-      collections: colNames,
-      usersCount: count,
-      usersSample: latest5,
-    });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+      vercelUrl: process.env.VERCEL_URL || "(local?)",
+      dbName: DB,
+      email,
+      hits: [] as any[],
+      routes: {
+        pending: "/api/users/pending",
+        approved: "/api/users/approved",
+        approve: "/api/users/approve"
+      }
+    };
+
+    if (email) {
+      for (const c of collections) {
+        try {
+          const cnt = await db.collection(c).countDocuments({ email: { $regex: `^${email}$`, $options: "i" } });
+          result.hits.push({ collection: c, count: cnt });
+        } catch {}
+      }
+    } else {
+      // 전체 카운트만 (무거우면 건너뜀)
+      for (const c of collections) {
+        try {
+          const cnt = await db.collection(c).estimatedDocumentCount();
+          result.hits.push({ collection: c, estimated: cnt });
+        } catch {}
+      }
+    }
+
+    return NextResponse.json(result);
+  } catch (e:any) {
+    return NextResponse.json({ ok:false, error:e?.message||"debug error" }, { status:500 });
   }
 }
