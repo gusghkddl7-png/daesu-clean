@@ -1,65 +1,138 @@
 "use client";
-import { useState } from "react";
+
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-function loadUsers(){ try{ return JSON.parse(localStorage.getItem("daesu:users")||"[]"); }catch{return[];} }
-function saveUsers(v){ try{ localStorage.setItem("daesu:users", JSON.stringify(v)); }catch{} }
+/* utils */
+const toYMD = (d=new Date())=>{
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,"0");
+  const day=String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+};
+const fmtPhone = (v) => {
+  const digits = String(v||"").replace(/\D/g,"").slice(0,11); // 최대 11자리
+  const a = digits.slice(0,3);
+  const b = digits.slice(3,7);
+  const c = digits.slice(7,11);
+  if (digits.length <= 3) return a;
+  if (digits.length <= 7) return `${a}-${b}`;
+  return `${a}-${b}-${c}`;
+};
 
-export default function SignUp(){
+export default function SignUpPage(){
   const router = useRouter();
-  const [f,setF] = useState({ id:"", password:"", confirm:"", name:"", phone:"" });
-  const [msg,setMsg] = useState(null);
-  const [err,setErr] = useState(null);
-  const match = f.password && f.confirm && f.password===f.confirm;
 
-  function onSubmit(e){
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [birth, setBirth] = useState("");      // YYYY-MM-DD
+  const [joinDate, setJoinDate] = useState(""); // 고정: 오늘
+  const [err, setErr] = useState("");
+  const [ok, setOk] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // 입사일은 오늘 날짜로 고정
+  useEffect(()=>{ setJoinDate(toYMD(new Date())); },[]);
+
+  const canSubmit = useMemo(()=>{
+    return (
+      email.trim() &&
+      pw.length >= 4 &&
+      pw === pw2 &&
+      name.trim() &&
+      /^\d{3}-\d{4}-\d{4}$/.test(phone) &&   // 3-4-4
+      /^\d{4}-\d{2}-\d{2}$/.test(birth) &&
+      joinDate // 이미 오늘자로 세팅됨
+    );
+  },[email,pw,pw2,name,phone,birth,joinDate]);
+
+  async function onSubmit(e){
     e.preventDefault();
-    setErr(null); setMsg(null);
-    if(!match){ setErr("\uBE44\uBC00\uBC88\uD638\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."); return; }
-    const users = loadUsers();
-    if(users.find(u=>u.id===f.id)){ setErr("\uC774\uBBF8 \uC874\uC7AC\uD558\uB294 \uC544\uC774\uB514\uC785\uB2C8\uB2E4."); return; }
-    users.push({ id:f.id, password:f.password, name:f.name, phone:f.phone, status:"pending" });
-    saveUsers(users);
-    setMsg("\uAC00\uC785 \uC2E0\uCCAD\uC774 \uC811\uC218\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uAD00\uB9AC\uC790 \uC2B9\uC778 \uB300\uAE30\uC911\uC785\uB2C8\uB2E4.");
+    if (!canSubmit || busy) return;
+    setErr(""); setOk(false); setBusy(true);
+    try {
+      const r = await fetch("/api/users", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({
+          email,
+          password: pw,
+          birth,
+          joinDate,   // 서버에는 고정된 오늘 날짜 전송
+          name,
+          phone
+        })
+      });
+      const j = await r.json().catch(()=>({}));
+      if (!r.ok || j?.ok===false) {
+        setErr(j?.message || "가입 신청에 실패했습니다.");
+      } else {
+        setOk(true);
+        // 잠깐 안내 후 로그인 페이지로 이동
+        setTimeout(()=>router.replace("/sign-in"), 900);
+      }
+    } catch {
+      setErr("네트워크 오류");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <div className="screen">
-      <div className="card">
-        <div className="title">{'\uD68C\uC6D0\uAC00\uC785'}</div>
-        <form className="form" onSubmit={onSubmit}>
-          <div className="row"><label>{'\uC544\uC774\uB514'}</label><input value={f.id} onChange={e=>setF({...f,id:e.target.value})} required/></div>
-          <div className="row"><label>{'\uBE44\uBC00\uBC88\uD638'}</label><input type="password" value={f.password} onChange={e=>setF({...f,password:e.target.value})} required/></div>
-          <div className="row"><label>{'\uBE44\uBC00\uBC88\uD638 \uD655\uC778'}</label><input type="password" value={f.confirm} onChange={e=>setF({...f,confirm:e.target.value})} required/></div>
-          <div className="hint">{f.confirm ? (match ? <span className="ok">{'\uC77C\uCE58'}</span> : <span className="bad">{'\uBD88\uC77C\uCE58'}</span>) : null}</div>
-          <div className="row"><label>{'\uC131\uD568'}</label><input value={f.name} onChange={e=>setF({...f,name:e.target.value})} required/></div>
-          <div className="row"><label>{'\uC5F0\uB77D\uCC98'}</label><input value={f.phone} onChange={e=>setF({...f,phone:e.target.value})} required/></div>
-          {err && <div className="bad">{err}</div>}
-          {msg && <div className="ok">{msg}</div>}
-          <div className="btns">
-            <button type="submit" className="btn primary">{'\uD68C\uC6D0\uAC00\uC785'}</button>
-            <button type="button" className="btn ghost" onClick={()=>router.push("/sign-in")}>{'\uB85C\uADF8\uC778\uC73C\uB85C'}</button>
-          </div>
-        </form>
-        <div className="note">{'\uAC00\uC785 \uD6C4 \uAD00\uB9AC\uC790 \uC2B9\uC778\uAE4C\uC9C0\uB294 \uB85C\uADF8\uC778\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.'}</div>
-      </div>
+    <main style={{minHeight:"100svh",display:"grid",placeItems:"center",background:"#f7f8f9"}}>
+      <form onSubmit={onSubmit} style={{width:420,maxWidth:"96%",background:"#fff",border:"1px solid #e5e7eb",borderRadius:14,padding:16,boxShadow:"0 10px 30px rgba(0,0,0,.06)"}}>
+        <h1 style={{textAlign:"center",fontWeight:900,margin:"6px 0 14px"}}>회원가입</h1>
+
+        <label className="lb">아이디 *이메일형식 <span style={{color:"#9ca3af"}}>(ex apple@naver.com)</span></label>
+        <input className="ip" type="email" placeholder="이메일" value={email} onChange={e=>setEmail(e.target.value.trim())} />
+
+        <label className="lb">비밀번호 <span style={{color:"#9ca3af"}}>(4자리 이상)</span></label>
+        <input className="ip" type="password" value={pw} onChange={e=>setPw(e.target.value)} />
+
+        <label className="lb">비밀번호 확인</label>
+        <input className="ip" type="password" value={pw2} onChange={e=>setPw2(e.target.value)} />
+
+        <label className="lb">성함</label>
+        <input className="ip" value={name} onChange={e=>setName(e.target.value)} />
+
+        <label className="lb">연락처 <span style={{color:"#9ca3af"}}>(자동으로 000-0000-0000 형식)</span></label>
+        <input
+          className="ip"
+          inputMode="numeric"
+          placeholder="010-0000-0000"
+          value={phone}
+          onChange={(e)=> setPhone(fmtPhone(e.target.value))}
+        />
+
+        <label className="lb">생년월일</label>
+        <input className="ip" type="date" value={birth} onChange={e=>setBirth(e.target.value)} />
+
+        <label className="lb">입사일(가입일)</label>
+        <input className="ip" type="date" value={joinDate} readOnly disabled />
+
+        {!!err && <div style={{color:"#b91c1c",fontSize:13,marginTop:6}}>{err}</div>}
+        {ok &&  <div style={{color:"#065f46",fontSize:13,marginTop:6}}>가입 승인 요청이 접수되었습니다. 곧 이동합니다…</div>}
+
+        <button className="btn" type="submit" disabled={!canSubmit || busy}>
+          {busy ? "처리 중…" : "회원가입 신청"}
+        </button>
+
+        <div style={{textAlign:"center",marginTop:10,fontSize:13}}>
+          이미 계정이 있어요 (로그인) → <a href="/sign-in">로그인</a>
+        </div>
+      </form>
+
       <style jsx>{`
-        .screen{min-height:100svh;display:grid;place-items:center;padding:24px;background:linear-gradient(180deg,#fff,#f6f7f8);color:#111}
-        .card{width:min(560px,92vw);border-radius:24px;padding:32px 28px 28px;background:#fff;border:1px solid #e5e7eb;box-shadow:0 10px 30px rgba(0,0,0,.06)}
-        .title{font-size:22px;font-weight:800;margin-bottom:14px;color:#111}
-        .form{display:grid;gap:12px}.row{display:grid;gap:6px}
-        label{font-size:12px;letter-spacing:.6px;text-transform:uppercase;color:#555}
-        input{width:100%;background:#fff;border:1px solid #d1d5db;border-radius:12px;color:#111;padding:12px 14px;outline:none;transition:.2s}
-        input:focus{border-color:#111;box-shadow:0 0 0 3px rgba(0,0,0,.1)}
-        .hint{font-size:12px;opacity:.9}.ok{color:#16a34a}.bad{color:#e11d48}
-        .btns{display:flex;gap:10px;justify-content:space-between;margin-top:6px;flex-wrap:wrap}
-        .btn{display:inline-flex;justify-content:center;align-items:center;padding:12px 14px;border-radius:12px;font-weight:800;letter-spacing:.2px;text-decoration:none;cursor:pointer}
-        .btn.primary{flex:1 1 180px;border:1px solid #111;background:#111;color:#fff}
-        .btn.primary:hover{filter:brightness(1.06)}
-        .btn.ghost{flex:1 1 140px;border:1px dashed rgba(0,0,0,.5);background:transparent;color:#111;text-align:center}
-        .btn.ghost:hover{border-style:solid}
-        .note{margin-top:10px;font-size:13px;opacity:.9}
+        .lb{display:block;margin:8px 0 6px;font-size:13.5px;color:#374151}
+        .ip{width:100%;border:1px solid #e5e7eb;border-radius:10px;padding:10px}
+        .ip[disabled]{background:#f3f4f6;color:#6b7280;cursor:not-allowed}
+        .btn{width:100%;margin-top:12px;border:1px solid #111;background:#111;color:#fff;border-radius:10px;padding:10px;font-weight:800;cursor:pointer}
+        .btn[disabled]{opacity:.55;cursor:not-allowed}
+        .btn:not([disabled]):hover{filter:brightness(1.06)}
       `}</style>
-    </div>
+    </main>
   );
 }

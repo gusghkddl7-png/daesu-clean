@@ -42,7 +42,7 @@ async function apiGet(url, opts = {}) {
   }
 }
 
-/* ====== 공지 모달 (오늘일정 모달과 동일 크기) ====== */
+/* ====== 공지 모달 ====== */
 function NoticeCenter({ open, onClose }){
   const [list, setList] = useState([]);
   useEffect(()=>{ if(!open) return; (async()=>{ const res=await apiGet("/api/notices"); setList(onlyArr(res)); })(); },[open]);
@@ -145,7 +145,7 @@ function TodayScheduleModal({ open, onClose }){
   );
 }
 
-/* ====== 계약 일정 카드(왼쪽) ====== */
+/* ====== 계약 일정 카드 ====== */
 function ContractScheduleCard({ onGo }){
   const [events, setEvents] = useState([]);
   useEffect(()=>{ setEvents(onlyArr(safeLoad("daesu:events", []))); },[]);
@@ -196,7 +196,7 @@ function ContractScheduleCard({ onGo }){
   );
 }
 
-/* ====== 최근 활동 (오른쪽) ====== */
+/* ====== 최근 활동 ====== */
 function RecentActivityCompact(){
   const [events, setEvents]   = useState([]);
   const [clients, setClients] = useState([]);
@@ -241,8 +241,7 @@ function RecentActivityCompact(){
   );
 }
 
-/* ====== 요약 바 (숫자/라벨 중앙정렬) ====== */
-/* 디자인 그대로 유지, 내부 계산만 API 우선 + 폴백 + 20초 주기 새로고침 */
+/* ====== 요약 바 ====== */
 function SummaryBar({ onOpenToday, onOpenNotice }) {
   // 로컬 폴백용
   const [events, setEvents]     = useState([]);
@@ -272,11 +271,10 @@ function SummaryBar({ onOpenToday, onOpenNotice }) {
   const localClients  = { total: clientsLocal.length,  active: clientsLocal.filter(c=>!c?.closed).length };
   const pinnedCount   = notices.filter(n=>n.pinned).length;
 
-  // /api/stats → { ok:true, listings:{total,active}, clients:{total,active} } (없으면 404)
   async function fetchStats() {
     try {
       setLoading(true);
-      const r = await fetch("/api/stats", { cache: "no-store" });
+      const r = await fetch(`/api/stats?t=${Date.now()}`, { cache: "no-store" });
       if (!r.ok) throw 0;
       const j = await r.json();
       setStats(j?.ok ? j : null);
@@ -355,7 +353,6 @@ export default function Dashboard() {
     router.replace("/sign-in");
   }
 
-  // 타일은 모두 표시 (관리자만 접근 제한: billing / payroll / settings)
   const tiles = useMemo(() => TILES, []);
   const RESTRICT = new Set(["billing","payroll","settings"]);
   const go = (t)=>{
@@ -404,8 +401,6 @@ export default function Dashboard() {
         ))}
       </section>
 
-      {/* (공지 미리보기는 제거했습니다) */}
-
       {/* 요약 바 */}
       <SummaryBar onOpenToday={()=>setOpenToday(true)} onOpenNotice={()=>setOpenNotice(true)} />
 
@@ -415,7 +410,7 @@ export default function Dashboard() {
         <RecentActivityCompact />
       </section>
 
-      {/* 모달들 (크기 동일) */}
+      {/* 모달들 */}
       <NoticeCenter open={openNotice} onClose={()=>setOpenNotice(false)} />
       <TodayScheduleModal open={openToday} onClose={()=>setOpenToday(false)} />
 
@@ -445,7 +440,7 @@ export default function Dashboard() {
         .lockBadge{font-size:14px;opacity:.85}
         .ds{font-size:13px;color:#555}
 
-        /* 좌/우 2열(폼카드 크기) */
+        /* 좌/우 2열 */
         .twos{max-width:1080px;margin:0 auto 14px auto;padding:0 12px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
         @media (max-width: 980px){ .twos{grid-template-columns:1fr;} }
       `}</style>

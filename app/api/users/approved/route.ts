@@ -1,36 +1,29 @@
 import { NextResponse } from "next/server";
+import clientPromise from "../../../../lib/db";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const APPROVED_KEY = "approved-users";
+const DB = process.env.MONGODB_DB || "daesu";
+const USERS = "users";
 
-function json(data: any, init: ResponseInit = {}) {
-  const headers = new Headers(init.headers);
-  headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-  headers.set("Pragma", "no-cache");
-  headers.set("Expires", "0");
-  return NextResponse.json(data, { ...init, headers });
+function json(data:any, init: ResponseInit = {}) {
+  const h = new Headers(init.headers);
+  h.set("Cache-Control","no-store, no-cache, must-revalidate, max-age=0");
+  h.set("Pragma","no-cache"); h.set("Expires","0");
+  return NextResponse.json(data, { ...init, headers: h });
 }
 
 export async function GET() {
-  try {
-    const raw = (global as any)[APPROVED_KEY] || "[]";
-    const list = JSON.parse(raw);
+  try{
+    const cli = await clientPromise;
+    const db  = cli.db(DB);
+    const list = await db.collection(USERS)
+      .find({}, { projection: { _id:0, passwordHash:0 } })
+      .sort({ updatedAt: -1 })
+      .toArray();
     return json(list);
-  } catch (e: any) {
-    return json({ error: e?.message || "error" }, { status: 500 });
+  }catch(e:any){
+    return json({ ok:false, message:e?.message||"approved error" }, { status:500 });
   }
-}
-
-export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
-  const email = String(body.email || "").toLowerCase();
-  const name = String(body.name || "");
-  const list = JSON.parse((global as any)[APPROVED_KEY] || "[]");
-  // 중복 방지
-  const exists = list.some((x: any) => (x?.email || "").toLowerCase() === email);
-  if (!exists) list.push({ email, name, createdAt: new Date().toISOString() });
-  (global as any)[APPROVED_KEY] = JSON.stringify(list);
-  return json({ ok: true });
 }

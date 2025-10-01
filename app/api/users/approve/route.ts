@@ -1,36 +1,60 @@
 import { NextResponse } from "next/server";
+import clientPromise from "../../../../lib/db";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const PENDING_KEY = "pending-users";
-const APPROVED_KEY = "approved-users";
+const DB = process.env.MONGODB_DB || "daesu";
+const USERS = "users";
+const PENDING = "users_pending";
 
-function json(data: any, init: ResponseInit = {}) {
-  const headers = new Headers(init.headers);
-  headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-  headers.set("Pragma", "no-cache");
-  headers.set("Expires", "0");
-  return NextResponse.json(data, { ...init, headers });
+const norm = (s:any)=>String(s??"").trim().toLowerCase();
+const fixEmail = (s:any)=> norm(String(s||"").replace(/@([^@]+)$/, (_:any,d:any)=>"@"+String(d).replace(/,/g,".")));
+
+function json(data:any, init: ResponseInit = {}) {
+  const h = new Headers(init.headers);
+  h.set("Cache-Control","no-store, no-cache, must-revalidate, max-age=0");
+  h.set("Pragma","no-cache"); h.set("Expires","0");
+  return NextResponse.json(data, { ...init, headers: h });
 }
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
-  const email = String(body.email || "").toLowerCase();
-  const name = String(body.name || "");
+  try{
+    const body = await req.json().catch(()=> ({}));
+    const email = fixEmail(String(body.email || ""));
+    if (!email) return json({ ok:false, message:"email required" }, { status:400 });
 
-  const pending: any[] = JSON.parse((global as any)[PENDING_KEY] || "[]");
-  const approved: any[] = JSON.parse((global as any)[APPROVED_KEY] || "[]");
+    const cli = await clientPromise;
+    const db  = cli.db(DB);
 
-  // pending에서 제거
-  const nextPending = pending.filter((x) => (x?.email || "").toLowerCase() !== email);
-  (global as any)[PENDING_KEY] = JSON.stringify(nextPending);
+    // 대기열에서 꺼냄
+    const pend = await db.collection(PENDING).findOne({ email });
+    if (!pend) return json({ ok:false, message:"pending not found" }, { status:404 });
 
-  // approved에 중복 없이 추가
-  if (!approved.some((x) => (x?.email || "").toLowerCase() === email)) {
-    approved.push({ email, name, createdAt: new Date().toISOString() });
-    (global as any)[APPROVED_KEY] = JSON.stringify(approved);
+    // users 로 upsert (passwordHash 포함, 관리자 확인용 필드 유지)
+    await db.collection(USERS).updateOne(
+      { email },
+      { $set: {
+          email,
+          name: pend.name || "",
+          phone: pend.phone || "",
+          birth: pend.birth || null,
+          joinDate: pend.joinDate || null,
+          passwordHash: pend.passwordHash || null,
+          role: "user",
+          status: "approved",
+          updatedAt: new Date(),
+          createdAt: pend.createdAt || new Date(),
+        }
+      },
+      { upsert: true }
+    );
+
+    // 대기열에서 제거
+    await db.collection(PENDING).deleteOne({ email });
+
+    return json({ ok:true });
+  }catch(e:any){
+    return json({ ok:false, message:e?.message||"approve error" }, { status:500 });
   }
-
-  return json({ ok: true, pending: nextPending.length, approved: approved.length });
 }

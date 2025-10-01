@@ -5,53 +5,44 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const DB = process.env.MONGODB_DB || "daesu";
-const norm = (s:any)=>String(s??"").trim().replace(/,/g,".").toLowerCase();
+const COLL_USERS = "users";
+const COLL_PENDING = "users_pending";
+const COLL_STAFF = "staff";
+
+const esc = (s:string)=>s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+const normEmail = (s:any)=> String(s??"").trim().toLowerCase().replace(/\s+/g,"").replace(/,/g,".")
+  .replace(/@([^@]+)$/,(_,dom)=>"@"+String(dom||"").replace(/,/g,"."));
+
+function json(data:any, init:ResponseInit={}) {
+  const h = new Headers(init.headers);
+  h.set("Cache-Control","no-store"); return NextResponse.json(data,{...init, headers:h});
+}
 
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const email = norm(url.searchParams.get("email"));
+    const raw = url.searchParams.get("email") || "";
+    const email = normEmail(raw);
+    if (!email) return json({ ok:false, message:"email query required" }, { status:400 });
+
     const cli = await clientPromise;
     const db  = cli.db(DB);
+    const eq = { email: { $regex: `^${esc(email)}$`, $options: "i" } };
 
-    const collections = [
-      "staff",
-      "pending_users","users_pending","join_requests","users_requests",
-      "users"
-    ];
+    const [users, pending, staff] = await Promise.all([
+      db.collection(COLL_USERS).find(eq, { projection:{ _id:0, email:1 } }).toArray().catch(()=>[]),
+      db.collection(COLL_PENDING).find(eq, { projection:{ _id:0, email:1 } }).toArray().catch(()=>[]),
+      db.collection(COLL_STAFF).find(eq, { projection:{ _id:0, email:1 } }).toArray().catch(()=>[]),
+    ]);
 
-    const result: any = {
+    return json({
       ok: true,
-      vercelUrl: process.env.VERCEL_URL || "(local?)",
-      dbName: DB,
-      email,
-      hits: [] as any[],
-      routes: {
-        pending: "/api/users/pending",
-        approved: "/api/users/approved",
-        approve: "/api/users/approve"
-      }
-    };
-
-    if (email) {
-      for (const c of collections) {
-        try {
-          const cnt = await db.collection(c).countDocuments({ email: { $regex: `^${email}$`, $options: "i" } });
-          result.hits.push({ collection: c, count: cnt });
-        } catch {}
-      }
-    } else {
-      // 전체 카운트만 (무거우면 건너뜀)
-      for (const c of collections) {
-        try {
-          const cnt = await db.collection(c).estimatedDocumentCount();
-          result.hits.push({ collection: c, estimated: cnt });
-        } catch {}
-      }
-    }
-
-    return NextResponse.json(result);
+      raw,
+      normalized: email,
+      counts: { users: users.length, pending: pending.length, staff: staff.length },
+      samples: { users, pending, staff },
+    });
   } catch (e:any) {
-    return NextResponse.json({ ok:false, error:e?.message||"debug error" }, { status:500 });
+    return json({ ok:false, error:e?.message||"debug error" }, { status:500 });
   }
 }

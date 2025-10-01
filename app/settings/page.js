@@ -159,8 +159,6 @@ export default function Page() {
 
   // API 연결성 + 실제 콘텐츠 존재 여부
   const [apiAvailable, setApiAvailable] = useState(false);
-  const [apiHasPending, setApiHasPending] = useState(false);
-  const [apiHasApproved, setApiHasApproved] = useState(false);
 
   // 첫 로딩 완료 플래그(로컬 섹션 깜빡임 방지용)
   const [firstLoaded, setFirstLoaded] = useState(false);
@@ -178,75 +176,54 @@ export default function Page() {
   // 다중 클릭 방지
   const [busyIds, setBusyIds] = useState(new Set());
 
-  /** === 핵심: 로딩 로직 (폴백을 API 빈 배열로 덮어쓰지 않기) === */
+  /** === 핵심: 로딩 로직 === */
   async function loadPeople() {
     setLoadingPeople(true);
 
-    // 1) 로컬 폴백 준비
-    const local = loadUsers();
-    const pLocal = local
-      .filter(u => (u.status || "pending") === "pending")
-      .map(u => ({
-        id: u.id,
-        email: u.email || (u.id ? `${u.id}@example.com` : undefined),
-        displayName: u.name || "",
-        status: "pending",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }));
-    const aLocal = local
-      .filter(u => (u.status || "") === "approved")
-      .map(u => ({ id: u.id, email: u.email, displayName: u.name || u.id, status: "approved" }));
-
-    // 2) API 병렬 호출
     const [pRes, aRes] = await Promise.all([
       apiGet("/api/users/pending",  { headers: { "x-role": "admin" } }),
       apiGet("/api/users/approved", { headers: { "x-role": "admin" } }),
     ]);
 
-    // 3) API 가용성(연결) 여부
     const reachable = (pRes !== null) || (aRes !== null);
     setApiAvailable(reachable);
 
-    // 4) pending 반영
-    if (Array.isArray(pRes) && pRes.length > 0) {
-      setPending(pRes);
-      setApiHasPending(true);
-    } else if (!Array.isArray(pRes)) {
+    if (reachable) {
+      setPending(Array.isArray(pRes) ? pRes : []);
+      setApproved(Array.isArray(aRes) ? dedupeById(aRes.map(x => ({ ...x, id: x.id || x.email }))) : []);
+      try { localStorage.removeItem("daesu:users"); } catch {}
+    } else {
+      const local = loadUsers();
+      const pLocal = local
+        .filter(u => (u.status || "pending") === "pending")
+        .map(u => ({
+          id: u.id,
+          email: u.email || (u.id ? `${u.id}@example.com` : undefined),
+          displayName: u.name || "",
+          status: "pending",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }));
+      const aLocal = local
+        .filter(u => (u.status || "") === "approved")
+        .map(u => ({ id: u.id, email: u.email, displayName: u.name || u.id, status: "approved" }));
+
       setPending(pLocal);
-      setApiHasPending(false);
-    } // 빈 배열([])이면 기존값 유지
-
-    // 5) approved 반영 (id 정규화)
-    if (Array.isArray(aRes) && aRes.length > 0) {
-      const normA = aRes.map(x => ({ ...x, id: x.id || x.email }));
-      setApproved(normA);
-      setApiHasApproved(true);
-    } else if (!Array.isArray(aRes)) {
-      setApproved(aLocal);
-      setApiHasApproved(false);
-    } // 빈 배열([])이면 기존값 유지
-
-    // 6) 첫 로드시 아무 것도 없으면 로컬로 채움
-    setPending(prev => (prev && prev.length ? prev : pLocal));
-    setApproved(prev => (prev && prev.length ? prev : aLocal));
-
-    // 7) 중복 정리
-    setApproved(prev => dedupeById(prev));
+      setApproved(dedupeById(aLocal));
+    }
 
     setLoadingPeople(false);
     setFirstLoaded(true);
   }
   useEffect(() => { loadPeople(); }, []);
 
-  // email 우선, 없으면 id로 승인 — 낙관적 업데이트 + 중복 방지 + 실패 롤백
+  // 승인
   async function approveUser(idOrEmail, displayNameRaw){
     const displayName = (displayNameRaw||"").trim();
     if (!displayName) { toast.push("담당자 이름을 입력하세요","error"); return; }
 
     const raw = (idOrEmail||"").trim();
     const key = norm(raw);
-
     if (busyIds.has(key)) return;
     setBusyIds(prev => new Set(prev).add(key));
 
@@ -256,6 +233,7 @@ export default function Page() {
     const prevPending = pending;
     const prevApproved = approved;
 
+    // 낙관적
     setPending(p => (p||[]).filter(u => norm(u.email || u.id) !== key));
     setApproved(a => dedupeById([{ id: raw, email: raw.includes("@")?raw:undefined, displayName, status:"approved", createdAt:new Date().toISOString() }, ...(a||[])]));
 
@@ -272,10 +250,7 @@ export default function Page() {
 
       if (nameRefs.current[raw]) nameRefs.current[raw].value = "";
       toast.push("승인 완료");
-
       await loadPeople();
-      setPending(p => (p||[]).filter(u => norm(u.email || u.id) !== key));
-      setApproved(a => dedupeById(a));
     }catch{
       setPending(prevPending);
       setApproved(prevApproved);
@@ -285,7 +260,7 @@ export default function Page() {
     }
   }
 
-  // === 관리자 토글 (로컬 상태) ===
+  // 관리자 토글
   function toggleAdmin(id){
     setAdminIds(prev => {
       const next = new Set(prev);
@@ -296,7 +271,7 @@ export default function Page() {
     toast.push("권한 변경");
   }
 
-  // === 사용자 삭제(관리자 삭제 버튼) ===
+  // 삭제
   async function removeUser(idOrEmail){
     const raw = (idOrEmail||"").trim();
     if (!raw) return;
@@ -305,46 +280,35 @@ export default function Page() {
     const key = norm(raw);
     const prevPending = pending, prevApproved = approved, prevUsers = users;
 
-    // 낙관적 제거
     setPending(p => (p||[]).filter(u => norm(u.email||u.id)!==key));
     setApproved(a => (a||[]).filter(u => norm(u.email||u.id)!==key));
 
     try {
       let ok = false;
-
-      // 1순위: 전용 API
-      const res1 = await apiPost("/api/users/remove", raw.includes("@") ? { email: raw } : { id: raw }, { headers:{ "x-role":"admin"} });
-      if (res1 && res1.ok !== false) ok = true;
-
-      // 2순위: fallsback DELETE 쿼리 방식
-      if (!ok) {
-        const r = await fetch(`/api/users?${raw.includes("@") ? `email=${encodeURIComponent(raw)}` : `id=${encodeURIComponent(raw)}`}`, {
-          method:"DELETE", cache:"no-store", headers:{ "x-role":"admin" }
-        });
-        ok = r.ok;
+      if (apiAvailable) {
+        const res1 = await apiPost("/api/users/remove", raw.includes("@") ? { email: raw } : { id: raw }, { headers:{ "x-role":"admin"} });
+        if (res1 && res1.ok !== false) ok = true;
+        if (!ok) {
+          const r = await fetch(`/api/users?${raw.includes("@") ? `email=${encodeURIComponent(raw)}` : `id=${encodeURIComponent(raw)}`}`, {
+            method:"DELETE", cache:"no-store", headers:{ "x-role":"admin" }
+          });
+          ok = r.ok;
+        }
       }
-
-      // 3순위: 로컬 폴백
-      if (!ok) {
+      if (!ok && !apiAvailable) {
         const next = (prevUsers||[]).filter(u => norm(u.id)!==key && norm(u.email)!==key);
         setUsers(next); saveUsers(next);
-        ok = true; // 로컬 기준 성공 처리
+        ok = true;
       }
-
-      if (ok) {
-        toast.push("삭제 완료");
-        await loadPeople();
-      } else {
-        throw new Error("remove failed");
-      }
+      if (ok) { toast.push("삭제 완료"); await loadPeople(); }
+      else throw new Error("remove failed");
     } catch {
-      // 롤백
       setPending(prevPending); setApproved(prevApproved); setUsers(prevUsers);
       toast.push("삭제 실패","error");
     }
   }
 
-  // 로컬-only 조작들
+  // 로컬-only 조작
   function rejectUserLocal(id){
     const next = users.map(x => x.id===id ? { ...x, status:"rejected" } : x);
     setUsers(next); saveUsers(next); loadPeople(); toast.push("거절 처리됨");
@@ -516,25 +480,34 @@ export default function Page() {
             <button className="mini" style={{marginLeft:8}} onClick={loadPeople}>새로고침</button>
           </div>
 
+          {/* 대기 목록 - 전체 정보 노출 */}
           <section className="cardbox">
             <div className="cardtitle">대기 중인 가입 요청</div>
-            {loadingPeople ? <div className="empty">불러오는 중…</div> :
-              pending.length===0 ? <div className="empty">대기 중인 요청이 없습니다.</div> :
+            {loadingPeople ? (
+              <div className="empty">불러오는 중…</div>
+            ) : pending.length===0 ? (
+              <div className="empty">대기 중인 요청이 없습니다.</div>
+            ) : (
               <div className="list">
                 {pending.map(u => {
-                  const ident = u.email || u.id; // email 우선
+                  const ident = u.email || u.id;
                   return (
                     <div key={ident} className="item">
                       <div className="item-main">
-                        <div className="bold">{ident}</div>
-                        <div className="muted">{u.createdAt ? new Date(u.createdAt).toLocaleString() : "-"}</div>
+                        <div className="bold">{u.name || "-"}</div>
+                        <div className="muted">
+                          {ident}
+                          {u.phone ? ` · ${u.phone}` : ""}
+                          {u.birth ? ` · 생일 ${u.birth}` : ""}
+                          {u.joinDate ? ` · 입사 ${u.joinDate}` : ""}
+                        </div>
                       </div>
                       <div className="item-edit">
                         <input
                           ref={(el) => { if (el) { nameRefs.current[ident] = el; } }}
                           className="search"
                           placeholder="담당자 이름"
-                          defaultValue={u.displayName||""}
+                          defaultValue={u.displayName||u.name||""}
                           onKeyDown={(e)=>{
                             if(e.key==="Enter"){
                               e.preventDefault();
@@ -560,22 +533,27 @@ export default function Page() {
                   );
                 })}
               </div>
-            }
+            )}
           </section>
 
+          {/* 승인 목록 - 전체 정보 노출 */}
           <section className="cardbox">
             <div className="cardtitle">승인된 직원 (담당자)</div>
             {approved.length===0 ? <div className="empty">아직 승인된 직원이 없습니다.</div> :
               <ul className="flatlist">
                 {approved.map(a=>{
-                  const isAdmin = adminIds.has(a.id);
+                  const key = a.id || a.email;
+                  const isAdmin = adminIds.has(key);
                   return (
-                    <li key={a.id} className="row">
-                      <span className="name">{a.displayName || a.id}</span>
+                    <li key={key} className="row">
+                      <span className="name">{a.name || a.displayName || key}</span>
                       <span className="sep">—</span>
-                      <span className="meta">{a.id}</span>
+                      <span className="meta">{a.email || a.id}</span>
+                      {a.phone && <span className="meta"> · {a.phone}</span>}
+                      {a.birth && <span className="meta"> · 생일 {a.birth}</span>}
+                      {a.joinDate && <span className="meta"> · 입사 {a.joinDate}</span>}
                       <span className={`adminchip ${isAdmin?"on":""}`}>{isAdmin?"관리자: 켜짐":"관리자: 꺼짐"}</span>
-                      <button className={`mini ${isAdmin?"on":""}`} onClick={()=>toggleAdmin(a.id)}>
+                      <button className={`mini ${isAdmin?"on":""}`} onClick={()=>toggleAdmin(key)}>
                         {isAdmin?"관리자 해제":"관리자 지정"}
                       </button>
                       <button className="mini" onClick={()=>removeUser(a.email || a.id)}>삭제</button>
@@ -586,7 +564,7 @@ export default function Page() {
             }
           </section>
 
-          {/* 로컬 사용자 목록: API가 안될 때만 표시(깜빡임 방지: firstLoaded 필요) */}
+          {/* 로컬 사용자 목록: API가 안될 때만 표시 */}
           {(firstLoaded && !apiAvailable) && (
             <section className="cardbox">
               <div className="cardtitle">로컬 사용자 목록 (보조)</div>
@@ -875,7 +853,7 @@ function lsSize() {
 function clearKey(k){ try{ localStorage.removeItem(k); }catch{} }
 function clearAll(){ try{ localStorage.clear(); }catch{} }
 function exportSettings(){
-  const payload = {}; // 필요한 항목만 넣어도 됨
+  const payload = {};
   const blob = new Blob([JSON.stringify(payload,null,2)], { type:"application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -886,10 +864,7 @@ function exportSettings(){
 function importSettings(file){
   const fr = new FileReader();
   fr.onload = () => {
-    try {
-      const data = JSON.parse(fr.result?.toString()||"{}");
-      // 필요 시 세부 반영
-    } catch {}
+    try { JSON.parse(fr.result?.toString()||"{}"); } catch {}
   };
   fr.readAsText(file);
 }
@@ -933,7 +908,6 @@ const STYLES = `
   .item-edit{display:flex;align-items:center}
   .item-ops{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
 
-  /* 승인 목록: 한 줄형 */
   .flatlist{list-style:none;margin:0;padding:10px;display:flex;flex-direction:column;gap:8px}
   .flatlist .row{display:flex;gap:10px;align-items:center;justify-content:flex-start;border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:var(--card)}
   .flatlist .name{font-weight:800}
@@ -942,7 +916,6 @@ const STYLES = `
   .adminchip{margin-left:auto;border:1px solid var(--border);border-radius:999px;padding:4px 8px;font-size:12px;background:var(--chip-bg)}
   .adminchip.on{border-color:transparent;background:var(--accent);color:#fff}
 
-  /* 공지 — 가로 스크롤 카드 */
   .hscroll{display:flex;gap:12px;overflow:auto;padding:10px}
   .ncard{
     min-width:320px; max-width:420px; flex:0 0 auto;
