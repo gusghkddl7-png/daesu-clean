@@ -47,7 +47,7 @@ export default function Page() {
   const [q, setQ] = useState("");
 
   // 각 행 담당자 입력 ref
-  const nameRefs = useRef<Record<string, HTMLInputElement|null>>({});
+  const nameRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   async function loadAll() {
     setLoading(true);
@@ -65,7 +65,7 @@ export default function Page() {
   useEffect(()=>{ loadAll(); }, []);
 
   async function approve(ident: string) {
-    const input = nameRefs.current[ident];
+    const input = nameRefs.current[ident] || null;
     const displayName = input?.value?.trim() || "";
     if (!displayName) { alert("담당자 이름을 입력하세요."); input?.focus(); return; }
 
@@ -159,7 +159,10 @@ export default function Page() {
                   <td className="muted">{ident}{u.phone?` · ${u.phone}`:""}</td>
                   <td>
                     <input
-                      ref={el => (nameRefs.current[ident] = el)}
+                      ref={(el) => {
+                        if (el) nameRefs.current[ident] = el;
+                        else delete nameRefs.current[ident];
+                      }}
                       className="search" placeholder="담당자 이름"
                       defaultValue={u.displayName || u.name || ""}
                       onKeyDown={(e)=>{ if(e.key==="Enter"){ e.preventDefault(); approve(ident); } }}
