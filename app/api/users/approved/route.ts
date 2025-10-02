@@ -23,11 +23,12 @@ export async function GET() {
       .db(DB)
       .collection(USERS)
       .find({ status: "approved" })
-      .project({ passwordHash: 0 })
+      .project({ passwordHash: 0 }) // displayName은 그대로 포함됨
       .sort({ approvedAt: -1, createdAt: -1 })
       .toArray();
 
-    return json({ ok: true, items: rows });
+    // ✅ 배열 그대로 반환
+    return json(rows);
   } catch (e: any) {
     return json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }

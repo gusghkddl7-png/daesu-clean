@@ -18,7 +18,7 @@ const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-$
 const typeClass = t => t==="가계약" ? "blue" : (t==="본계약"||t==="잔금및입주" ? "red" : "black");
 const typeList  = ["투어","가계약","본계약","잔금및입주"];
 const timeOptions = (()=>{ const out=[]; for(let m=540;m<=1200;m+=15){ const h=String(Math.floor(m/60)).padStart(2,"0"); const mm=String(m%60).padStart(2,"0"); out.push(`${h}:${mm}`);} return out; })();
-const SEP = "\u200A/\u200A"; // 슬래시 양옆 아주 촘촘
+const SEP = "\u200A/\u200A";
 
 // 시간 문자열(HH:MM) → 분 숫자 (없으면 매우 큰 수로)
 function minutesOrInf(s){
@@ -55,24 +55,38 @@ async function apiUpsert(item){
   return await res.json();
 }
 
-// 승인된 담당자 목록 가져오기
-async function fetchApprovedStaff(){
+/** 승인된 담당자 최신 목록 불러오기
+ *  - /api/staff 응답이 { ok:true, items:[{label,displayName,name,email}] } 이든
+ *    배열이든 모두 처리
+ *  - 화면에는 label(또는 displayName/name/email) 그대로 표시
+ */
+async function fetchApprovedStaffLabels(){
   try{
-    const res = await fetch("/api/staff?approved=1", { cache: "no-store" });
-    if(!res.ok) throw new Error("staff api 200 아님");
-    const arr = await res.json();
-    // 3글자만 허용 + 문자열만
-    const list = Array.isArray(arr) ? arr
-      .map(s => typeof s === "string" ? s.trim() : "")
-      .filter(Boolean)
-      .filter(n => n.length === 3)
-      .filter((v,i,self)=> self.indexOf(v)===i )
-      : [];
-    return list;
+    const r = await fetch("/api/staff", { cache: "no-store" });
+    if(!r.ok) throw new Error("staff api 200 아님");
+    const data = await r.json();
+
+    let raw = [];
+    if (Array.isArray(data)) {
+      raw = data;
+    } else if (data && Array.isArray(data.items)) {
+      raw = data.items;
+    }
+
+    const labels = raw.map((x)=>{
+      if (typeof x === "string") return x.trim();
+      const label = String(x?.label || x?.displayName || x?.name || x?.email || "").trim();
+      return label;
+    }).filter(Boolean);
+
+    // 중복 제거(표시 텍스트 기준)
+    const seen = new Set();
+    const dedup = [];
+    for (const s of labels) { if(!seen.has(s)){ seen.add(s); dedup.push(s); } }
+    return dedup;
   }catch(e){
     console.warn("담당자 불러오기 실패. 기본값 사용", e);
-    // 임시 기본(오프라인/개발 대비)
-    return ["김부장","김과장","강실장"];
+    return [];
   }
 }
 
@@ -83,14 +97,14 @@ export default function ScheduleClient(){
   const [ready,setReady]   = useState(false);
   const [loading,setLoading] = useState(false);
 
-  // 담당자 옵션 (연동)
+  // 담당자 옵션 (승인 직원 표시명)
   const [staffOptions, setStaffOptions] = useState([]);
 
-  // 최초 로드: 담당자 옵션 → 일정 목록
+  // 최초 로드
   useEffect(()=>{
     (async()=>{
       // 1) 승인된 담당자
-      const staff = await fetchApprovedStaff();
+      const staff = await fetchApprovedStaffLabels();
       setStaffOptions(staff);
 
       // 2) 일정 캐시 먼저
@@ -113,6 +127,17 @@ export default function ScheduleClient(){
         setLoading(false);
       }
     })();
+  },[]);
+
+  // [자동 재조회] 탭으로 돌아올 때 담당자 목록 최신화
+  useEffect(()=>{
+    function onVis(){
+      if (document.visibilityState === "visible") {
+        fetchApprovedStaffLabels().then(setStaffOptions).catch(()=>{});
+      }
+    }
+    document.addEventListener("visibilitychange", onVis);
+    return ()=> document.removeEventListener("visibilitychange", onVis);
   },[]);
 
   const emptyDraft = { id:"", date:"", type:"투어", staff:"", time:"", phone4:"", nickname:"", memo:"", canceled:false, pinned:false };
@@ -145,15 +170,29 @@ export default function ScheduleClient(){
 
   const saveCache = (arr)=>{ try{ localStorage.setItem("daesu:events", JSON.stringify(arr)); }catch{} };
   const move = (delta)=>setCursor(new Date(y,m+delta,1));
-  const openNew  = (date)=>{ setDraft({ ...emptyDraft, id:"e"+Date.now(), date }); setIsEdit(false); setOpen(true); };
-  const openEdit = (ev)=>{ setDraft({ ...emptyDraft, ...ev }); setIsEdit(true); setOpen(true); };
+
+  // 모달 열기 전에 담당자 목록 최신화(보수적 재조회)
+  const openNew  = async (date)=>{
+    try{ setLoading(true); setStaffOptions(await fetchApprovedStaffLabels()); }catch{}
+    finally{ setLoading(false); }
+    setDraft({ ...emptyDraft, id:"e"+Date.now(), date });
+    setIsEdit(false);
+    setOpen(true);
+  };
+  const openEdit = async (ev)=>{
+    try{ setLoading(true); setStaffOptions(await fetchApprovedStaffLabels()); }catch{}
+    finally{ setLoading(false); }
+    setDraft({ ...emptyDraft, ...ev });
+    setIsEdit(true);
+    setOpen(true);
+  };
   const close    = ()=>{ setOpen(false); setDraft(emptyDraft); };
 
   // ‘오늘’ 버튼: 오늘 달로 이동 + 바로 등록 모달 오픈
-  const openTodayNew = ()=>{
+  const openTodayNew = async ()=>{
     const n = new Date();
     setCursor(new Date(n.getFullYear(), n.getMonth(), 1));
-    setTimeout(()=>openNew(ymd(n)), 0);
+    await openNew(ymd(n));
   };
 
   const onSave = async ()=>{
@@ -163,15 +202,15 @@ export default function ScheduleClient(){
     if(!draft.time)  return alert("시간을 선택해 주세요.");
     if(draft.phone4 && !/^\d{4}$/.test(draft.phone4)) return alert("전화번호 뒷자리(4자리)를 입력해 주세요.");
 
-    // 3글자 제한 + 승인목록에 존재하는지 최종 검증
+    // 승인목록에 존재하는지 최종 검증
     const staffName = (draft.staff||"").trim();
-    if(staffName.length!==3 || !staffOptions.includes(staffName)){
-      return alert("승인된 3글자 담당자만 선택할 수 있습니다.");
+    if(staffOptions.length && !staffOptions.includes(staffName)){
+      return alert("승인된 담당자만 선택할 수 있습니다.");
     }
 
     const norm = {
       ...draft,
-      staff: staffName, // 보존
+      staff: staffName, // 보존(표시명 그대로)
       id: draft.id || ("t"+Date.now()),
       pinned: !!draft.pinned,
       canceled: !!draft.canceled,
@@ -199,7 +238,7 @@ export default function ScheduleClient(){
     }
   };
 
-  // 삭제는 아직 서버에 DELETE 엔드포인트가 없으므로 '소프트 삭제'로 처리(숨김 + 서버에도 반영)
+  // 삭제는 아직 서버에 DELETE 엔드포인트가 없으므로 '소프트 삭제'로 처리
   const onDelete = async ()=>{
     if(!isEdit) return;
     if(!confirm("삭제하시겠습니까?")) return;
@@ -353,7 +392,7 @@ export default function ScheduleClient(){
         .wrap.ready{opacity:1;transition:opacity .08s ease}
 
         .bar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;width:100%;max-width:none;margin:0 auto 8px}
-        .left{justify-self:start}.center{display:flex;align-items:center;gap:8px;justify-self:center}.right{justify-self:end}
+        .left{justify-self:start}.center{display:flex;align-items:center;gap:8px;justify-self:center}.right{justify-self=end}
         .title{font-weight:900;font-size:18px;letter-spacing:.3px;min-width:140px;text-align:center}
         .nav{border:1px solid #e5e7eb;background:#fff;border-radius:10px;padding:8px 10px;cursor:pointer}
         .today{border:1px solid #111;background:#111;color:#fff;border-radius:10px;padding:8px 12px;font-weight:800}

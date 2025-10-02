@@ -20,8 +20,10 @@ function json(data: any, init: ResponseInit = {}) {
 
 export async function POST(req: Request) {
   try {
-    const { userId, email: rawEmail } = await req.json();
+    const body = await req.json();
+    const { userId, email: rawEmail, displayName: rawDisplayName } = body || {};
     const email = String(rawEmail || "").trim().toLowerCase();
+    const displayName = (rawDisplayName || "").trim();
 
     if (!userId && !email) {
       return json({ ok: false, error: "userId or email required" }, { status: 400 });
@@ -30,7 +32,7 @@ export async function POST(req: Request) {
     const cli = await clientPromise;
     const db = cli.db(DB);
 
-    // 1) 대기열에서 후보 찾기
+    // 1) 대기열 조회
     const filter = userId
       ? { _id: new ObjectId(String(userId)) }
       : { email };
@@ -40,19 +42,20 @@ export async function POST(req: Request) {
       return json({ ok: false, error: "pending_not_found" }, { status: 404 });
     }
 
-    // 2) 이미 승인된 계정 중복 체크
+    // 2) 기존 승인 중복
     const dupApproved = await db.collection(USERS).findOne({ email: pendingDoc.email });
     if (dupApproved) {
-      // 대기열 정리만 시도
+      // 대기열 정리만
       await db.collection(PENDING).deleteOne({ _id: pendingDoc._id });
       return json({ ok: true, note: "already_approved_cleaned" });
     }
 
-    // 3) 승인 문서 구성
+    // 3) 승인 문서
     const now = new Date();
     const approvedDoc = {
       email: pendingDoc.email,
       name: pendingDoc.name || "",
+      displayName: displayName || pendingDoc.displayName || pendingDoc.name || "", // ✅ 표시명 저장
       phone: pendingDoc.phone || "",
       birth: pendingDoc.birth ?? null,
       joinDate: pendingDoc.joinDate ?? null,
@@ -63,13 +66,12 @@ export async function POST(req: Request) {
       updatedAt: now,
     };
 
-    // 4) users에 넣고, pending에서 제거 (승격)
+    // 4) users에 넣고, pending에서 제거
     await db.collection(USERS).insertOne(approvedDoc);
     await db.collection(PENDING).deleteOne({ _id: pendingDoc._id });
 
-    return json({ ok: true });
+    return json({ ok: true, item: approvedDoc });
   } catch (e: any) {
-    // ObjectId 변환 에러 등
     return json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }

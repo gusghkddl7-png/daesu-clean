@@ -27,7 +27,8 @@ export async function GET() {
       .sort({ createdAt: -1 })
       .toArray();
 
-    return json({ ok: true, items: rows });
+    // ✅ 배열 그대로 반환 (UI가 Array.isArray(...)로 처리)
+    return json(rows);
   } catch (e: any) {
     return json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
