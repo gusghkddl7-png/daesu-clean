@@ -22,9 +22,9 @@ export default function SignInPage() {
       const r = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idOrEmail, password }),
+        body: JSON.stringify({ idOrEmail, password })
       });
-      const j = await r.json();
+      const j = await r.json().catch(() => ({}));
       if (!r.ok || !j?.ok) { setErr(j?.message || "로그인 실패"); return; }
       try { localStorage.setItem("daesu:session", JSON.stringify(j.session)); } catch {}
       router.replace("/dashboard");
@@ -35,48 +35,35 @@ export default function SignInPage() {
 
   return (
     <HydrateGate>
-      <main style={{ minHeight:"100svh", display:"grid", placeItems:"center", background:"#f7f8f9" }}>
-        <form
-          onSubmit={onSubmit}
-          style={{ width:420, maxWidth:"96%", background:"#fff", border:"1px solid #e5e7eb", borderRadius:14, padding:16, boxShadow:"0 10px 30px rgba(0,0,0,.06)" }}
-          autoComplete="off"
-        >
-          <h1 style={{ textAlign:"center", fontWeight:900, margin:"6px 0 14px" }}>대수부동산</h1>
+      <main style={{ minHeight: "100svh", display: "grid", placeItems: "center", background: "#f7f8f9" }}>
+        <form onSubmit={onSubmit}
+              style={{ width: 420, maxWidth: "96%", background: "#fff", border: "1px solid #e5e7eb",
+                       borderRadius: 14, padding: 16, boxShadow: "0 10px 30px rgba(0,0,0,.06)" }}>
+          <h1 style={{ textAlign: "center", fontWeight: 900, margin: "6px 0 14px" }}>대수부동산</h1>
 
-          <label className="lb" htmlFor="login-username">이메일</label>
-          <input
-            id="login-username"
-            name="username"
-            className="ip"
-            value={idOrEmail}
-            onChange={(e) => setIdOrEmail(e.target.value)}
-            placeholder="ex) apple123@naver.com"
-            autoFocus
-            autoComplete="username"
-            inputMode="email"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-          />
+          <label className="lb">이메일</label>
+          <input className="ip"
+                 value={idOrEmail}
+                 onChange={e => setIdOrEmail(e.target.value)}
+                 placeholder="ex) apple123@naver.com"
+                 autoFocus
+                 name="username"
+                 autoComplete="username" />
 
-          <label className="lb" htmlFor="login-password">비밀번호</label>
-          <input
-            id="login-password"
-            name="password"
-            className="ip"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder=""
-            autoComplete="current-password"
-          />
+          <label className="lb">비밀번호</label>
+          <input className="ip"
+                 type="password"
+                 value={password}
+                 onChange={e => setPassword(e.target.value)}
+                 name="current-password"
+                 autoComplete="current-password" />
 
-          {err && <div style={{ color:"#b91c1c", fontSize:13, marginTop:6 }}>{err}</div>}
+          {err && <div style={{ color: "#b91c1c", fontSize: 13, marginTop: 6 }}>{err}</div>}
           <button className="btn" type="submit">로그인</button>
 
-          <div style={{ display:"flex", justifyContent:"space-between", marginTop:10, fontSize:13 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, fontSize: 13 }}>
             <a href="/sign-up">회원가입</a>
-            <span style={{ display:"flex", gap:12 }}>
+            <span style={{ display: "flex", gap: 12 }}>
               <a href="/forgot-id">아이디 찾기</a>
               <a href="/forgot-password">비밀번호 찾기</a>
             </span>

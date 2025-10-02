@@ -1,3 +1,4 @@
+// app/api/users/approved/route.ts
 import { NextResponse } from "next/server";
 import clientPromise from "../../../../lib/db";
 
@@ -7,23 +8,27 @@ export const revalidate = 0;
 const DB = process.env.MONGODB_DB || "daesu";
 const USERS = "users";
 
-function json(data:any, init: ResponseInit = {}) {
-  const h = new Headers(init.headers);
-  h.set("Cache-Control","no-store, no-cache, must-revalidate, max-age=0");
-  h.set("Pragma","no-cache"); h.set("Expires","0");
-  return NextResponse.json(data, { ...init, headers: h });
+function json(data: any, init: ResponseInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  headers.set("Pragma", "no-cache");
+  headers.set("Expires", "0");
+  return NextResponse.json(data, { ...init, headers });
 }
 
 export async function GET() {
-  try{
+  try {
     const cli = await clientPromise;
-    const db  = cli.db(DB);
-    const list = await db.collection(USERS)
-      .find({}, { projection: { _id:0, passwordHash:0 } })
-      .sort({ updatedAt: -1 })
+    const rows = await cli
+      .db(DB)
+      .collection(USERS)
+      .find({ status: "approved" })
+      .project({ passwordHash: 0 })
+      .sort({ approvedAt: -1, createdAt: -1 })
       .toArray();
-    return json(list);
-  }catch(e:any){
-    return json({ ok:false, message:e?.message||"approved error" }, { status:500 });
+
+    return json({ ok: true, items: rows });
+  } catch (e: any) {
+    return json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }

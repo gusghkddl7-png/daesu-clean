@@ -78,6 +78,9 @@ function useToast() {
 const THEME_KEY   = "daesu:theme-mode";  // "light" | "dark" | "system"
 const DENSITY_KEY = "daesu:density";     // "cozy" | "compact"
 
+/* 사이트 담당자 키(승인관리 연동) */
+const SITE_MANAGER_KEY = "daesu:site:managerName";
+
 function applyThemeToDOM(mode) {
   const root = document.documentElement;
   const mql = window.matchMedia("(prefers-color-scheme: dark)");
@@ -430,6 +433,32 @@ export default function Page() {
   }, []);
   function saveStartup(next){ setStartup(next); try{ localStorage.setItem(STARTUP_KEY, JSON.stringify(next)); }catch{}; toast.push("시작화면 설정 저장"); }
 
+  /* === 사이트 담당자 표기 (승인관리 연동) === */
+  const [siteManager, setSiteManager] = useState("");
+  useEffect(() => {
+    try { setSiteManager(localStorage.getItem(SITE_MANAGER_KEY) || ""); } catch {}
+    const onStorage = (e) => { if (e.key === SITE_MANAGER_KEY) setSiteManager(e.newValue || ""); };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  /* === Alt + A 단축키: 승인 관리 페이지 열기 ===
+     (훅은 조건 없이 항상 선언, 내부에서만 권한 체크) */
+  useEffect(() => {
+    const goAdminMembers = (e) => {
+      if (!(e && e.altKey && String(e.key).toLowerCase() === "a")) return;
+      try {
+        const s = JSON.parse(localStorage.getItem("daesu:session") || "null");
+        const roleNow = s?.role || "guest";
+        if (roleNow !== "admin") return;
+      } catch {}
+      e.preventDefault();
+      router.push("/admin/members");
+    };
+    window.addEventListener("keydown", goAdminMembers);
+    return () => window.removeEventListener("keydown", goAdminMembers);
+  }, [router]);
+
   /* ===== 권한 없는 화면 ===== */
   if (!hydrated) {
     return <style jsx global>{STYLES}</style>;
@@ -475,9 +504,24 @@ export default function Page() {
       {/* PEOPLE */}
       {tab==="people" && (
         <>
-          <div className="info">
-            <span className="chip">{apiAvailable ? "API 연결됨" : "로컬 폴백"}</span>
-            <button className="mini" style={{marginLeft:8}} onClick={loadPeople}>새로고침</button>
+          {/* 상단 정보 + 가운데 사이트 담당자 + 우측 바로가기 */}
+          <div className="info" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+            <div>
+              <span className="chip">{apiAvailable ? "API 연결됨" : "로컬 폴백"}</span>
+              <button className="mini" style={{marginLeft:8}} onClick={loadPeople}>새로고침</button>
+            </div>
+            <div>
+              <span className="chip">사이트 담당자: <b>{siteManager || "미지정"}</b></span>
+            </div>
+            <div>
+              <button
+                className="mini on"
+                onClick={()=>router.push("/admin/members")}
+                title="Alt + A 로도 열 수 있어요"
+              >
+                승인 관리 페이지 열기 (/admin/members)
+              </button>
+            </div>
           </div>
 
           {/* 대기 목록 - 전체 정보 노출 */}
@@ -756,7 +800,7 @@ export default function Page() {
               <div className="subhead">자동 열기</div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 {["notice","urgent","billing"].map(key=>(
-                  <label key={key} style={{display:"inline-flex",gap:6,alignItems:"center",border:"1px solid var(--border)",borderRadius:8,padding:"6px 10px",background:"var(--chip-bg)"}}>
+                  <label key={key} style={{display:"inline-flex",alignItems:"center",gap:6,border:"1px solid var(--border)",borderRadius:8,padding:"6px 10px",background:"var(--chip-bg)"}}>
                     <input
                       type="checkbox"
                       checked={startup.autoOpen?.includes(key)}

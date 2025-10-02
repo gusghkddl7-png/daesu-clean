@@ -1,5 +1,7 @@
+// app/api/users/approve/route.ts
 import { NextResponse } from "next/server";
 import clientPromise from "../../../../lib/db";
+import { ObjectId } from "mongodb";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -8,53 +10,66 @@ const DB = process.env.MONGODB_DB || "daesu";
 const USERS = "users";
 const PENDING = "users_pending";
 
-const norm = (s:any)=>String(s??"").trim().toLowerCase();
-const fixEmail = (s:any)=> norm(String(s||"").replace(/@([^@]+)$/, (_:any,d:any)=>"@"+String(d).replace(/,/g,".")));
-
-function json(data:any, init: ResponseInit = {}) {
-  const h = new Headers(init.headers);
-  h.set("Cache-Control","no-store, no-cache, must-revalidate, max-age=0");
-  h.set("Pragma","no-cache"); h.set("Expires","0");
-  return NextResponse.json(data, { ...init, headers: h });
+function json(data: any, init: ResponseInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  headers.set("Pragma", "no-cache");
+  headers.set("Expires", "0");
+  return NextResponse.json(data, { ...init, headers });
 }
 
 export async function POST(req: Request) {
-  try{
-    const body = await req.json().catch(()=> ({}));
-    const email = fixEmail(String(body.email || ""));
-    if (!email) return json({ ok:false, message:"email required" }, { status:400 });
+  try {
+    const { userId, email: rawEmail } = await req.json();
+    const email = String(rawEmail || "").trim().toLowerCase();
+
+    if (!userId && !email) {
+      return json({ ok: false, error: "userId or email required" }, { status: 400 });
+    }
 
     const cli = await clientPromise;
-    const db  = cli.db(DB);
+    const db = cli.db(DB);
 
-    // 대기열에서 꺼냄
-    const pend = await db.collection(PENDING).findOne({ email });
-    if (!pend) return json({ ok:false, message:"pending not found" }, { status:404 });
+    // 1) 대기열에서 후보 찾기
+    const filter = userId
+      ? { _id: new ObjectId(String(userId)) }
+      : { email };
 
-    // users 로 upsert (passwordHash 포함, 관리자 확인용 필드 유지)
-    await db.collection(USERS).updateOne(
-      { email },
-      { $set: {
-          email,
-          name: pend.name || "",
-          phone: pend.phone || "",
-          birth: pend.birth || null,
-          joinDate: pend.joinDate || null,
-          passwordHash: pend.passwordHash || null,
-          role: "user",
-          status: "approved",
-          updatedAt: new Date(),
-          createdAt: pend.createdAt || new Date(),
-        }
-      },
-      { upsert: true }
-    );
+    const pendingDoc = await db.collection(PENDING).findOne(filter);
+    if (!pendingDoc) {
+      return json({ ok: false, error: "pending_not_found" }, { status: 404 });
+    }
 
-    // 대기열에서 제거
-    await db.collection(PENDING).deleteOne({ email });
+    // 2) 이미 승인된 계정 중복 체크
+    const dupApproved = await db.collection(USERS).findOne({ email: pendingDoc.email });
+    if (dupApproved) {
+      // 대기열 정리만 시도
+      await db.collection(PENDING).deleteOne({ _id: pendingDoc._id });
+      return json({ ok: true, note: "already_approved_cleaned" });
+    }
 
-    return json({ ok:true });
-  }catch(e:any){
-    return json({ ok:false, message:e?.message||"approve error" }, { status:500 });
+    // 3) 승인 문서 구성
+    const now = new Date();
+    const approvedDoc = {
+      email: pendingDoc.email,
+      name: pendingDoc.name || "",
+      phone: pendingDoc.phone || "",
+      birth: pendingDoc.birth ?? null,
+      joinDate: pendingDoc.joinDate ?? null,
+      passwordHash: pendingDoc.passwordHash || "",
+      status: "approved",
+      createdAt: pendingDoc.createdAt ?? now,
+      approvedAt: now,
+      updatedAt: now,
+    };
+
+    // 4) users에 넣고, pending에서 제거 (승격)
+    await db.collection(USERS).insertOne(approvedDoc);
+    await db.collection(PENDING).deleteOne({ _id: pendingDoc._id });
+
+    return json({ ok: true });
+  } catch (e: any) {
+    // ObjectId 변환 에러 등
+    return json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }

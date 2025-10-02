@@ -1,6 +1,7 @@
 // app/api/register/route.js
 import { NextResponse } from "next/server";
 import { MongoClient } from "mongodb";
+import { hashSync } from "bcryptjs";
 
 let client = null;
 async function getClient() {
@@ -10,46 +11,62 @@ async function getClient() {
   return client;
 }
 
-/**
- * body: { email, password, displayName }
- * - email: 필수 (소문자 정규화)
- * - password: 필수 (지금은 저장 안 함; 이후 해시 적용 예정)
- * - displayName: 선택
- * 결과: users 컬렉션에 status:"pending"으로 upsert
- */
+function json(data, init = {}) {
+  const headers = new Headers(init.headers);
+  headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  headers.set("Pragma", "no-cache");
+  headers.set("Expires", "0");
+  return NextResponse.json(data, { ...init, headers });
+}
+
+const DB = process.env.MONGODB_DB || "daesu";
+const USERS = "users";
+const PENDING = "users_pending";
+
+const norm = (s) => String(s ?? "").trim().toLowerCase();
+const fixEmail = (s) =>
+  norm(String(s || "").replace(/@([^@]+)$/, (_m, d) => "@" + String(d).replace(/,/g, ".")));
+
 export async function POST(req) {
   try {
-    const { email, password, displayName } = await req.json();
-    if (!email || !password) {
-      return NextResponse.json({ ok: false, error: "email/password required" }, { status: 400 });
-    }
+    const { email: rawEmail, password, displayName, name, phone, birth, joinDate } = await req.json();
+    const email = fixEmail(rawEmail || "");
+    if (!email || !password) return json({ ok: false, error: "email/password required" }, { status: 400 });
+    if ((password || "").length < 4) return json({ ok: false, error: "password too short" }, { status: 400 });
 
     const cli = await getClient();
-    const db = cli.db(process.env.MONGODB_DB);
-    const col = db.collection("users");
+    const db = cli.db(DB);
 
-    const now = new Date().toISOString();
-    const emailNorm = String(email).toLowerCase();
+    // 이미 승인된 계정이면 차단
+    const dup = await db.collection(USERS).findOne({ email });
+    if (dup) return json({ ok: false, error: "already approved" }, { status: 409 });
 
-    // 최초 가입이면 pending으로 생성, 있으면(탈퇴/재요청 등) pending으로 갱신
-    const r = await col.updateOne(
-      { email: emailNorm },
+    // 대기열로 upsert
+    const now = new Date();
+    const passwordHash = hashSync(password, 10);
+
+    await db.collection(PENDING).updateOne(
+      { email },
       {
-        $setOnInsert: {
-          email: emailNorm,
-          createdAt: now,
-        },
         $set: {
-          displayName: displayName || "",
+          email,
+          name: name ?? displayName ?? "",
+          phone: phone ?? "",
+          birth: birth ?? null,
+          joinDate: joinDate ?? null,
+          passwordHash,
           status: "pending",
           updatedAt: now,
+        },
+        $setOnInsert: {
+          createdAt: now,
         },
       },
       { upsert: true }
     );
 
-    return NextResponse.json({ ok: true, upserted: !!r.upsertedId });
+    return json({ ok: true });
   } catch (e) {
-    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+    return json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
