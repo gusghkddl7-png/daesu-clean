@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 /** /api/staff 응답 포맷:
- *  - 배열: [{ email, displayName, name, ...}]
- *  - 또는 { ok:true, items:[...] }
+ *  - { ok:true, items:[{ id, email, label, name, displayName }] }
+ *  - 또는 배열 그대로 [{ email, displayName, name, ...}]
  */
 type StaffRow = {
   email?: string;
@@ -61,7 +61,7 @@ export default function AssigneeSelect({
       setError(null);
       try {
         const r = await fetch("/api/staff", { cache: "no-store" });
-        if (!r.ok) throw new Error(\`HTTP \${r.status}\`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
 
         const rows: StaffRow[] = Array.isArray(data) ? data : (data?.items || []);
@@ -143,12 +143,12 @@ export default function AssigneeSelect({
       {!!helpText && <div className="assignee-help">{helpText}</div>}
       {name && <input type="hidden" name={name} value={value || ""} />}
 
-      <style jsx>{\`
+      <style jsx>{`
         .assignee-wrap{display:grid;gap:6px}
         .assignee-label{font-weight:700;font-size:13px}
         .assignee-help{font-size:12px;opacity:.7}
         .search{border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:var(--card);color:var(--fg)}
-      \`}</style>
+      `}</style>
     </div>
   );
 }
