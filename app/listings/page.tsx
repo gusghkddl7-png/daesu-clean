@@ -481,6 +481,15 @@ export default function ListingsPage() {
             {name}
           </button>
         ))}
+
+        {/* ✅ 새로 추가: 주소및호실상태 이동 버튼 */}
+        <button
+          onClick={() => router.push("/listings/units")}
+          title="주소 및 호실 상태 화면으로 이동"
+          className="px-3 py-1.5 rounded-full border bg-amber-500 text-white hover:opacity-90"
+        >
+          주소및호실상태
+        </button>
       </div>
 
       {/* 검색/필터 */}
