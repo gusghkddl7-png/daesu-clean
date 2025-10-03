@@ -42,7 +42,7 @@ async function apiGet(url, opts = {}) {
   }
 }
 
-/* ====== 공지 모달 (오늘일정 모달과 동일 크기) ====== */
+/* ====== 공지 모달 ====== */
 function NoticeCenter({ open, onClose }){
   const [list, setList] = useState([]);
   useEffect(()=>{ if(!open) return; (async()=>{ const res=await apiGet("/api/notices"); setList(onlyArr(res)); })(); },[open]);
@@ -145,7 +145,7 @@ function TodayScheduleModal({ open, onClose }){
   );
 }
 
-/* ====== 계약 일정 카드(왼쪽) ====== */
+/* ====== 계약 일정 카드 ====== */
 function ContractScheduleCard({ onGo }){
   const [events, setEvents] = useState([]);
   useEffect(()=>{ setEvents(onlyArr(safeLoad("daesu:events", []))); },[]);
@@ -196,7 +196,7 @@ function ContractScheduleCard({ onGo }){
   );
 }
 
-/* ====== 최근 활동 (오른쪽) ====== */
+/* ====== 최근 활동 ====== */
 function RecentActivityCompact(){
   const [events, setEvents]   = useState([]);
   const [clients, setClients] = useState([]);
@@ -241,18 +241,23 @@ function RecentActivityCompact(){
   );
 }
 
-/* ====== 요약 바 (숫자/라벨 중앙정렬) ====== */
+/* ====== 요약 바 ====== */
 function SummaryBar({ onOpenToday, onOpenNotice }) {
-  const [events, setEvents]   = useState([]);
-  const [clients, setClients] = useState([]);
-  const [listings, setListings] = useState([]);
-  const [notices, setNotices] = useState([]);
+  // 로컬 폴백용
+  const [events, setEvents]     = useState([]);
+  const [clientsLocal, setClientsLocal]   = useState([]);
+  const [listingsLocal, setListingsLocal] = useState([]);
+  const [notices, setNotices]   = useState([]);
+
+  // API 집계
+  const [stats, setStats]   = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(()=>{
     try{
       setEvents(onlyArr(safeLoad("daesu:events", [])));
-      setClients(onlyArr(safeLoad("daesu:clients", [])));
-      setListings(onlyArr(safeLoad("daesu:listings", [])));
+      setClientsLocal(onlyArr(safeLoad("daesu:clients", [])));
+      setListingsLocal(onlyArr(safeLoad("daesu:listings", [])));
     }catch{}
     (async ()=>{ const list = await apiGet("/api/notices"); setNotices(onlyArr(list)); })();
   },[]);
@@ -260,14 +265,33 @@ function SummaryBar({ onOpenToday, onOpenNotice }) {
   const today = todayStr();
   const todayEvents  = events.filter(e=>e.date===today && !e.canceled);
 
-  const totalListings = listings.length;
-  const doneListing = (x)=> !!(x?.closed || x?.dealDone || x?.sold || x?.completed || x?.status==="closed" || x?.status==="거래완료");
-  const activeListings = listings.filter(l=>!doneListing(l)).length;
-
-  const totalClients = clients.length;
-  const activeClients = clients.filter(c=>!c?.closed).length;
-
+  // 로컬 기준 계산(폴백)
+  const doneListing = (x)=> !!(x?.closed || x?.dealDone || x?.sold || x?.completed || x?.status==="closed" || x?.status==="거래완료" || ["done","완료","종료"].includes(x?.status));
+  const localListings = { total: listingsLocal.length, active: listingsLocal.filter(l=>!doneListing(l)).length };
+  const localClients  = { total: clientsLocal.length,  active: clientsLocal.filter(c=>!c?.closed).length };
   const pinnedCount   = notices.filter(n=>n.pinned).length;
+
+  async function fetchStats() {
+    try {
+      setLoading(true);
+      const r = await fetch(`/api/stats?t=${Date.now()}`, { cache: "no-store" });
+      if (!r.ok) throw 0;
+      const j = await r.json();
+      setStats(j?.ok ? j : null);
+    } catch {
+      setStats(null); // 폴백 사용
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    fetchStats();                             // 최초 1회
+    const t = setInterval(fetchStats, 20000); // 20초마다 자동 갱신
+    return () => clearInterval(t);
+  }, []);
+
+  const listings = stats?.listings || localListings;
+  const clients  = stats?.clients  || localClients;
 
   return (
     <section className="summary">
@@ -276,11 +300,11 @@ function SummaryBar({ onOpenToday, onOpenNotice }) {
       </button>
       <div className="card">
         <div className="k">총 매물관리</div>
-        <div className="v">{activeListings} / {totalListings}</div>
+        <div className="v">{loading && !stats ? "..." : `${listings.active} / ${listings.total}`}</div>
       </div>
       <div className="card">
         <div className="k">총 임차문의</div>
-        <div className="v">{activeClients} / {totalClients}</div>
+        <div className="v">{loading && !stats ? "..." : `${clients.active} / ${clients.total}`}</div>
       </div>
       <button className="card clickable" onClick={onOpenNotice} aria-label="공지 열기">
         <div className="k">공지사항</div><div className="v">{pinnedCount} / {notices.length}</div>
@@ -329,7 +353,6 @@ export default function Dashboard() {
     router.replace("/sign-in");
   }
 
-  // 타일은 모두 표시 (관리자만 접근 제한: billing / payroll / settings)
   const tiles = useMemo(() => TILES, []);
   const RESTRICT = new Set(["billing","payroll","settings"]);
   const go = (t)=>{
@@ -378,8 +401,6 @@ export default function Dashboard() {
         ))}
       </section>
 
-      {/* (공지 미리보기는 제거했습니다) */}
-
       {/* 요약 바 */}
       <SummaryBar onOpenToday={()=>setOpenToday(true)} onOpenNotice={()=>setOpenNotice(true)} />
 
@@ -389,7 +410,7 @@ export default function Dashboard() {
         <RecentActivityCompact />
       </section>
 
-      {/* 모달들 (크기 동일) */}
+      {/* 모달들 */}
       <NoticeCenter open={openNotice} onClose={()=>setOpenNotice(false)} />
       <TodayScheduleModal open={openToday} onClose={()=>setOpenToday(false)} />
 
@@ -419,7 +440,7 @@ export default function Dashboard() {
         .lockBadge{font-size:14px;opacity:.85}
         .ds{font-size:13px;color:#555}
 
-        /* 좌/우 2열(폼카드 크기) */
+        /* 좌/우 2열 */
         .twos{max-width:1080px;margin:0 auto 14px auto;padding:0 12px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
         @media (max-width: 980px){ .twos{grid-template-columns:1fr;} }
       `}</style>

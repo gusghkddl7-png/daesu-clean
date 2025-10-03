@@ -62,6 +62,9 @@ const BT_CATS = [
 type BtCat = (typeof BT_CATS)[number];
 
 type Form = {
+  /* ★ 추가: 담당자(3글자, 승인된 사람만 선택 가능) */
+  agent: string;
+
   dealType: Deal | "";
   buildingType: BtCat | "";
 
@@ -107,6 +110,8 @@ type Form = {
 };
 
 const initForm: Form = {
+  agent: "",
+
   dealType: "",
   buildingType: "",
   addressJibeon: "",
@@ -462,11 +467,34 @@ export default function EditListingPage() {
   const [loading, setLoading] = useState(true);
   const [orig, setOrig] = useState<any>(null);
 
+  // 승인된 담당자(3글자) 목록
+  const [staffList, setStaffList] = useState<string[]>([]);
+
   // 한 번만 선언
   const formRef = useRef<HTMLFormElement>(null);
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) =>
     setF((s) => ({ ...s, [k]: v }));
+
+  // 승인된 담당자 불러오기 (3글자만 사용)
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/staff?approved=1", { cache: "no-store" });
+        if (!res.ok) throw new Error("staff get failed");
+        const arr = (await res.json()) as string[];
+        const only3 = Array.isArray(arr)
+          ? Array.from(new Set(arr.filter((s) => typeof s === "string" && s.trim().length === 3).map((s) => s.trim())))
+          : [];
+        if (alive) setStaffList(only3);
+      } catch (e) {
+        console.error(e);
+        if (alive) setStaffList([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -486,6 +514,7 @@ export default function EditListingPage() {
         const m = String(x?.tenantInfo || "").match(/이사가능일\s+(\d{4}-\d{2}-\d{2})/);
 
         const next: Form = {
+          agent: typeof x?.agent === "string" ? x.agent : "",           // ★ 담당자
           dealType: (x?.dealType ?? "") as any,
           buildingType: (x?.buildingType ?? "") as any,
           addressJibeon: x?.address ?? "",
@@ -547,6 +576,7 @@ export default function EditListingPage() {
 
   const errors = useMemo(() => {
     const e: Record<string, string> = {};
+    if (!f.agent || !staffList.includes(f.agent)) e.agent = "담당자를 선택하세요."; // ★
     if (!f.dealType) e.dealType = "거래유형을 선택하세요.";
     if (!f.buildingType) e.buildingType = "건물유형을 선택하세요.";
     if (f.addressJibeon && !/동\s*\d+\-\d+/.test(f.addressJibeon)) {
@@ -565,7 +595,7 @@ export default function EditListingPage() {
     if (f.areaM2 && !/^\d+(\.\d+)?$/.test(f.areaM2))
       e.areaM2 = "숫자 또는 소수로 입력하세요. 예: 44.2";
     return e;
-  }, [f]);
+  }, [f, staffList]);
 
   const hasError = Object.keys(errors).length > 0;
 
@@ -601,6 +631,8 @@ export default function EditListingPage() {
     setSaving(true);
     try {
       const payload = {
+        agent: f.agent || undefined, // ★ 담당자 저장
+
         dealType: f.dealType || undefined,
         buildingType: f.buildingType || undefined,
         deposit: f.deposit ? Number(f.deposit) : undefined,
@@ -706,6 +738,22 @@ export default function EditListingPage() {
           }
         >
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* ★ 담당자 */}
+            <div>
+              <L>담당자 *</L>
+              <select
+                className="border rounded px-3 h-10 text-sm w-full"
+                value={f.agent}
+                onChange={(e) => set("agent", e.target.value)}
+              >
+                <option value="">담당자 선택</option>
+                {staffList.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              {errors.agent && <p className="text-xs text-red-600 mt-1">{errors.agent}</p>}
+            </div>
+
             <div>
               <L>거래유형 *</L>
               <div className="flex gap-2" data-skip-tab>
@@ -720,7 +768,7 @@ export default function EditListingPage() {
                 ))}
               </div>
             </div>
-            <div className="md:col-span-3">
+            <div className="md:col-span-2">
               <L>건물유형 *</L>
               <div className="flex flex-wrap gap-2" data-skip-tab>
                 {BT_CATS.map((c) => (

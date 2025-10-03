@@ -63,16 +63,7 @@ type Billing = {
 };
 
 /** ===== 컬럼 ===== */
-const COL_W = {
-  prelim: 80,   // (생성일 ->) 가계약일
-  agent: 110,   // 담당(두 줄 표시)
-  address: 87,
-  stages: 190,
-  landlord: 140,
-  tenant: 150,
-  fee: 90,
-  memo: 460,
-} as const;
+const COL_W = { prelim: 80, agent: 110, address: 87, stages: 190, landlord: 140, tenant: 150, fee: 90, memo: 460 } as const;
 const ROW_H = 60;
 const CLAMP = "whitespace-nowrap overflow-hidden text-ellipsis";
 
@@ -85,28 +76,14 @@ function cleanUpTo2(v: string) {
   const tail = s.slice(idx + 1).replace(/\./g, "").slice(0, 2);
   return head + (tail.length ? "." + tail : ".");
 }
-const num = (v: string) => {
-  const n = parseFloat(v);
-  return Number.isFinite(n) ? n : 0;
-};
-const fmtMan2 = (n: number) =>
-  n.toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+const fmtMan2 = (n: number) => n.toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 function fmtManSmart(n: number) {
   const isInt = Math.abs(n - Math.round(n)) < 1e-9;
-  return n.toLocaleString("ko-KR", {
-    minimumFractionDigits: isInt ? 0 : 2,
-    maximumFractionDigits: isInt ? 0 : 2,
-  });
+  return n.toLocaleString("ko-KR", { minimumFractionDigits: isInt ? 0 : 2, maximumFractionDigits: isInt ? 0 : 2 });
 }
-const asPlain = (n: number) => {
-  const s = n.toFixed(2);
-  return s.endsWith(".00") ? String(Math.round(n)) : s.replace(/\.?0$/, "");
-};
-const fmtDate10 = (iso?: string) => {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  return isNaN(d.getTime()) ? "-" : d.toISOString().slice(0, 10);
-};
+const asPlain = (n: number) => { const s = n.toFixed(2); return s.endsWith(".00") ? String(Math.round(n)) : s.replace(/\.?0$/, ""); };
+const fmtDate10 = (iso?: string) => { if (!iso) return "-"; const d = new Date(iso); return isNaN(d.getTime()) ? "-" : d.toISOString().slice(0, 10); };
 
 /** ===== VAT ===== */
 function deriveVat(amountMan: number, included: boolean) {
@@ -148,18 +125,12 @@ function computeBrokerage(
       const base = depositMan;
       const rate = officeUsage === "상업용" ? 0.009 : 0.005;
       const fee = +(base * rate).toFixed(2);
-      return {
-        base, fee,
-        rule: `오피스텔(${officeUsage ?? "주거용"}) ${officeUsage === "상업용" ? "0.9‰" : "0.5‰"} (상한없음)`,
-      };
+      return { base, fee, rule: `오피스텔(${officeUsage ?? "주거용"}) ${officeUsage === "상업용" ? "0.9‰" : "0.5‰"} (상한없음)` };
     } else {
       const base = leaseBase(depositMan, rentMan);
       const rate = officeUsage === "상업용" ? 0.009 : 0.004;
       const fee = +(base * rate).toFixed(2);
-      return {
-        base, fee,
-        rule: `오피스텔(${officeUsage ?? "주거용"}) ${officeUsage === "상업용" ? "0.9‰" : "0.4‰"} (상한없음)`,
-      };
+      return { base, fee, rule: `오피스텔(${officeUsage ?? "주거용"}) ${officeUsage === "상업용" ? "0.9‰" : "0.4‰"} (상한없음)` };
     }
   }
 
@@ -202,12 +173,37 @@ function isInMonth(dateStr?: string, month?: string) {
   return !isNaN(d.getTime()) && d.getFullYear() === yy && d.getMonth() + 1 === mm;
 }
 
+/** ===== CSV ===== */
+function downloadCSV(filename: string, rows: Record<string, any>[], headers: string[]) {
+  try {
+    const esc = (s = "") => `"${String(s).replace(/"/g, '""')}"`;
+    const head = headers.map(esc).join(",");
+    const body = rows.map((r) => headers.map((h) => esc(r[h])).join(",")).join("\n");
+    const blob = new Blob([head + "\n" + body], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+    URL.revokeObjectURL(a.href);
+  } catch {}
+}
+
+/** ===== 상태 기억 키 ===== */
+const LS_KEY = "daesu:billing:viewstate";
+
 export default function BillingPage() {
   const router = useRouter();
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "";
 
   const [items, setItems] = useState<Billing[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // 뷰 상태(검색/토글/월)
+  const [month, setMonth] = useState<string>(() => {
+    const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [q, setQ] = useState("");
+  const [onlyUnpaid, setOnlyUnpaid] = useState(false);
+  const [onlyNoReceipt, setOnlyNoReceipt] = useState(false);
+  const [onlyThisMonth, setOnlyThisMonth] = useState(false); // 잔금/입주가 선택월인 것만
 
   // 모달(등록/수정)
   const [open, setOpen] = useState(false);
@@ -233,22 +229,12 @@ export default function BillingPage() {
 
   // 당사자(금액/시점)
   const [land, setLand] = useState<Party>({
-    dueStage: DEFAULT_STAGE,
-    expect: "0",
-    received: "0",
-    vatIncluded: true,
-    receivedDate: "",
-    receivedCash: "0",
-    receivedBank: "0",
+    dueStage: DEFAULT_STAGE, expect: "0", received: "0", vatIncluded: true,
+    receivedDate: "", receivedCash: "0", receivedBank: "0",
   });
   const [ten, setTen] = useState<Party>({
-    dueStage: DEFAULT_STAGE,
-    expect: "0",
-    received: "0",
-    vatIncluded: true,
-    receivedDate: "",
-    receivedCash: "0",
-    receivedBank: "0",
+    dueStage: DEFAULT_STAGE, expect: "0", received: "0", vatIncluded: true,
+    receivedDate: "", receivedCash: "0", receivedBank: "0",
   });
 
   // 성함/연락처
@@ -268,10 +254,7 @@ export default function BillingPage() {
     let alive = true;
     (async () => {
       try {
-        const res = await fetch(`${baseUrl}/api/billing`, {
-          cache: "no-store",
-          credentials: "include",
-        });
+        const res = await fetch(`${baseUrl}/api/billing`, { cache: "no-store", credentials: "include" });
         if (!res.ok) {
           const t = await res.text().catch(() => "");
           throw new Error(`목록 조회 실패: ${res.status} ${res.statusText} ${t}`);
@@ -281,14 +264,33 @@ export default function BillingPage() {
         arr.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setItems(arr);
       } catch (e: any) {
-        console.error(e);
-        alert(String(e?.message || e));
+        console.error(e); alert(String(e?.message || e));
       } finally {
         if (alive) setLoading(false);
       }
     })();
     return () => { alive = false; };
   }, [baseUrl]);
+
+  // 뷰상태 복원
+  useEffect(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem(LS_KEY) || "null");
+      if (s) {
+        if (s.month) setMonth(s.month);
+        if (typeof s.q === "string") setQ(s.q);
+        if (typeof s.onlyUnpaid === "boolean") setOnlyUnpaid(s.onlyUnpaid);
+        if (typeof s.onlyNoReceipt === "boolean") setOnlyNoReceipt(s.onlyNoReceipt);
+        if (typeof s.onlyThisMonth === "boolean") setOnlyThisMonth(s.onlyThisMonth);
+      }
+    } catch {}
+  }, []);
+  // 뷰상태 저장
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({ month, q, onlyUnpaid, onlyNoReceipt, onlyThisMonth }));
+    } catch {}
+  }, [month, q, onlyUnpaid, onlyNoReceipt, onlyThisMonth]);
 
   // 잔금/입주 입력 시 수령일 자동복사
   useEffect(() => {
@@ -349,18 +351,11 @@ export default function BillingPage() {
     return { expSupply, expVat, expTotal, recSupply, recVat, recTotal };
   }, [items]);
 
-  // 월별 매출 카드 — 잔금/입주 날짜 기준 집계
-  const [month, setMonth] = useState<string>(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2, "0")}`;
-  });
+  /** ===== 월별 통계(잔금/입주 기준 입금액) & 계약건수(가계약 기준) ===== */
   const monthStats = useMemo(() => {
     if (!month) return { cnt: 0, supply: 0, vat: 0, total: 0 };
 
-    // 1) 계약건수: 가계약일 기준
     const cnt = items.filter((it) => isInMonth(it.datePrelim, month)).length;
-
-    // 2) 금액 집계: 잔금/입주일 기준
     const inMonthItems = items.filter((it) => isInMonth(it.dateClosing, month));
 
     let supply = 0, vat = 0, total = 0;
@@ -368,83 +363,58 @@ export default function BillingPage() {
       for (const p of [it.landlord, it.tenant]) {
         if (!p) continue;
         const d = deriveVat(num(p.received ?? "0"), !!p.vatIncluded);
-        supply += d.supply;
-        vat += d.vat;
-        total += d.total;
+        supply += d.supply; vat += d.vat; total += d.total;
       }
     }
-
-    return {
-      cnt,
-      supply: +supply.toFixed(2),
-      vat: +vat.toFixed(2),
-      total: +total.toFixed(2),
-    };
+    return { cnt, supply:+supply.toFixed(2), vat:+vat.toFixed(2), total:+total.toFixed(2) };
   }, [items, month]);
 
-  /** ===== 리스트: 가계약일 기준으로 월 필터(유지) ===== */
+  /** ===== 리스트: 월/검색/토글 필터 ===== */
   const displayedItems = useMemo(() => {
-    return items.filter((it) => isInMonth(it.datePrelim, month));
-  }, [items, month]);
+    let arr = items.filter((it) => isInMonth(it.datePrelim, month));
+    if (q.trim()) {
+      const needle = q.trim().toLowerCase();
+      const agentText = (arr: string[]|undefined) => (arr||[]).join(",").toLowerCase();
+      arr = arr.filter((it) =>
+        (it.address||"").toLowerCase().includes(needle) ||
+        (it.memo||"").toLowerCase().includes(needle) ||
+        agentText(it.agentL).includes(needle) ||
+        agentText(it.agentT).includes(needle) ||
+        (it.landlordName||"").toLowerCase().includes(needle) ||
+        (it.tenantName||"").toLowerCase().includes(needle)
+      );
+    }
+    if (onlyUnpaid) arr = arr.filter((it)=> !it.paidDone);
+    if (onlyNoReceipt) arr = arr.filter((it)=> !it.receiptIssued);
+    if (onlyThisMonth) arr = arr.filter((it)=> isInMonth(it.dateClosing, month));
+
+    // 가계약일 최근순 정렬
+    arr.sort((a,b)=> new Date(b.datePrelim||0).getTime() - new Date(a.datePrelim||0).getTime());
+    return arr;
+  }, [items, month, q, onlyUnpaid, onlyNoReceipt, onlyThisMonth]);
 
   /** ===== 입력 초기화 ===== */
   const resetInputs = () => {
-    setAgentLText("");
-    setAgentTText("");
-    setAddress("");
-    setDepositMan("0");
-    setRentMan("0");
-    setBuildingType("");
-    setDealType("");
-    setOfficeUsage("주거용");
-    setDatePrelim("");
-    setDateSign("");
-    setDateInterim("");
-    setDateClosing("");
-    setLand({
-      dueStage: DEFAULT_STAGE,
-      expect: "0",
-      received: "0",
-      vatIncluded: true,
-      receivedDate: "",
-      receivedCash: "0",
-      receivedBank: "0",
-    });
-    setTen({
-      dueStage: DEFAULT_STAGE,
-      expect: "0",
-      received: "0",
-      vatIncluded: true,
-      receivedDate: "",
-      receivedCash: "0",
-      receivedBank: "0",
-    });
-    setLandlordName(""); setLandlordPhone("");
-    setTenantName(""); setTenantPhone("");
-    setPaidDone(false);
-    setReceiptIssued(false);
-    setMemo("");
+    setAgentLText(""); setAgentTText(""); setAddress("");
+    setDepositMan("0"); setRentMan("0");
+    setBuildingType(""); setDealType(""); setOfficeUsage("주거용");
+    setDatePrelim(""); setDateSign(""); setDateInterim(""); setDateClosing("");
+    setLand({ dueStage: DEFAULT_STAGE, expect: "0", received: "0", vatIncluded: true, receivedDate: "", receivedCash: "0", receivedBank: "0" });
+    setTen({  dueStage: DEFAULT_STAGE, expect: "0", received: "0", vatIncluded: true, receivedDate: "", receivedCash: "0", receivedBank: "0" });
+    setLandlordName(""); setLandlordPhone(""); setTenantName(""); setTenantPhone("");
+    setPaidDone(false); setReceiptIssued(false); setMemo("");
     lastAuto.current = 0;
   };
 
   /** ===== 수정용 값 채우기 ===== */
   const loadFromItem = (it: Billing) => {
-    // ✅ 구버전 agent 단일필드 → 임대측 기본값으로 호환
     const lArr = Array.isArray(it.agentL) ? it.agentL : (it.agent ? [it.agent] : []);
     const tArr = Array.isArray(it.agentT) ? it.agentT : [];
-    setAgentLText(lArr.join(","));
-    setAgentTText(tArr.join(","));
-
-    setBuildingType((it.buildingType ?? "") as Bldg | "");
-    setDealType((it.dealType ?? "") as Deal | "");
+    setAgentLText(lArr.join(",")); setAgentTText(tArr.join(","));
+    setBuildingType((it.buildingType ?? "") as Bldg | ""); setDealType((it.dealType ?? "") as Deal | "");
     setOfficeUsage((it.officeUsage ?? "주거용") as OfficeUsage);
-    setAddress(it.address ?? "");
-    setDepositMan(it.depositMan ?? "0");
-    setRentMan(it.rentMan ?? "0");
-    setDatePrelim(it.datePrelim ?? "");
-    setDateSign(it.dateSign ?? "");
-    setDateInterim(it.dateInterim ?? "");
-    setDateClosing(it.dateClosing ?? "");
+    setAddress(it.address ?? ""); setDepositMan(it.depositMan ?? "0"); setRentMan(it.rentMan ?? "0");
+    setDatePrelim(it.datePrelim ?? ""); setDateSign(it.dateSign ?? ""); setDateInterim(it.dateInterim ?? ""); setDateClosing(it.dateClosing ?? "");
     setLand({
       dueStage: it.landlord?.dueStage ?? DEFAULT_STAGE,
       expect: it.landlord?.expect ?? "0",
@@ -465,46 +435,31 @@ export default function BillingPage() {
     });
     setLandlordName(it.landlordName ?? ""); setLandlordPhone(it.landlordPhone ?? "");
     setTenantName(it.tenantName ?? ""); setTenantPhone(it.tenantPhone ?? "");
-    setPaidDone(!!it.paidDone);
-    setReceiptIssued(!!it.receiptIssued);
-    setMemo(it.memo ?? "");
-    lastAuto.current = 0;
+    setPaidDone(!!it.paidDone); setReceiptIssued(!!it.receiptIssued);
+    setMemo(it.memo ?? ""); lastAuto.current = 0;
   };
 
   /** ===== 등록/수정 저장 ===== */
   async function handleSubmit() {
     try {
-      const toAgents = (s: string) =>
-        s.split(",").map(v => v.trim()).filter(Boolean);
-
+      const toAgents = (s: string) => s.split(",").map(v => v.trim()).filter(Boolean);
       const landSum = num(land.receivedCash ?? "0") + num(land.receivedBank ?? "0");
       const tenSum  = num(ten.receivedCash ?? "0") + num(ten.receivedBank ?? "0");
-
-      const landAgents = toAgents(agentLText);
-      const tenAgents  = toAgents(agentTText);
+      const landAgents = toAgents(agentLText); const tenAgents  = toAgents(agentTText);
 
       const body: Billing = {
         createdAt: editId
           ? (items.find(i => i._id === editId)?.createdAt ?? new Date().toISOString())
           : new Date().toISOString(),
-
-        // ✅ 새 구조 저장
-        agentL: landAgents,
-        agentT: tenAgents,
-
-        // ✅ 구버전 단일 필드 폴백(서버가 agent만 받는 경우 대비)
+        agentL: landAgents, agentT: tenAgents,
         agent: landAgents[0] ?? tenAgents[0] ?? undefined,
-
         buildingType: (buildingType || undefined) as Bldg | undefined,
         dealType: (dealType || undefined) as Deal | undefined,
         officeUsage: buildingType === "오피스텔" ? (officeUsage as OfficeUsage) : undefined,
         address: address.trim() || undefined,
         depositMan: cleanUpTo2(depositMan),
         rentMan: cleanUpTo2(rentMan),
-        datePrelim,
-        dateSign,
-        dateInterim,
-        dateClosing,
+        datePrelim, dateSign, dateInterim, dateClosing,
         landlord: {
           ...land,
           dueStage: land.dueStage,
@@ -524,15 +479,11 @@ export default function BillingPage() {
           vatIncluded: ten.vatIncluded,
         },
         memo: memo.trim() || undefined,
-
         landlordName: landlordName.trim() || undefined,
         landlordPhone: landlordPhone.trim() || undefined,
         tenantName: tenantName.trim() || undefined,
         tenantPhone: tenantPhone.trim() || undefined,
-
-        // 상태 플래그
-        paidDone,
-        receiptIssued,
+        paidDone, receiptIssued,
       };
 
       const base = process.env.NEXT_PUBLIC_BASE_URL || "";
@@ -540,53 +491,31 @@ export default function BillingPage() {
       const method = editId ? "PUT" : "POST";
 
       const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        credentials: "include",
+        method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), credentials: "include",
       });
 
       if (!res.ok) {
-        let msg = `${res.status} ${res.statusText}`;
-        try {
-          const t = await res.text();
-          if (t) msg += `\n${t}`;
-        } catch {}
-        alert(`저장 실패:\n${msg}`);
-        return;
+        let msg = `${res.status} ${res.statusText}`; try { const t = await res.text(); if (t) msg += `\n${t}`; } catch {}
+        alert(`저장 실패:\n${msg}`); return;
       }
 
       const saved = (await res.json()) as Billing;
       if (editId) setItems((s) => s.map((x) => (x._id === saved._id ? saved : x)));
       else setItems((s) => [saved, ...s]);
 
-      setOpen(false);
-      setEditId(null);
-      resetInputs();
-    } catch (e: any) {
-      alert(`저장 중 오류: ${e?.message || String(e)}`);
-    }
+      setOpen(false); setEditId(null); resetInputs();
+    } catch (e: any) { alert(`저장 중 오류: ${e?.message || String(e)}`); }
   }
 
   /** 🗑 삭제 */
   async function handleDelete() {
     if (!editId) return;
-    const ok = confirm("정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.");
-    if (!ok) return;
-
+    if (!confirm("정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.")) return;
     const url = `${baseUrl}/api/billing/${editId}`;
     const res = await fetch(url, { method: "DELETE", credentials: "include" });
-
-    if (!res.ok) {
-      const t = await res.text().catch(() => "");
-      alert(`삭제 실패: ${res.status} ${t || ""}`.trim());
-      return;
-    }
-
+    if (!res.ok) { const t = await res.text().catch(() => ""); alert(`삭제 실패: ${res.status} ${t || ""}`.trim()); return; }
     setItems((s) => s.filter((x) => x._id !== editId));
-    setOpen(false);
-    setEditId(null);
-    resetInputs();
+    setOpen(false); setEditId(null); resetInputs();
   }
 
   /** 메모 2줄 요약 */
@@ -600,23 +529,50 @@ export default function BillingPage() {
     return (first + (second ? "\n" + second : "")).trim();
   };
 
+  /** CSV 내보내기(현재 표시 행) */
+  const exportDisplayedCSV = () => {
+    if (!displayedItems.length) { alert("내보낼 데이터가 없습니다."); return; }
+    const rows = displayedItems.map((it) => {
+      const lExp = num(it.landlord?.expect ?? "0");
+      const tExp = num(it.tenant?.expect ?? "0");
+      return {
+        가계약일: fmtDate10(it.datePrelim),
+        주소: it.address || "",
+        담당임대: (it.agentL||[]).join(","),
+        담당임차: (it.agentT||[]).join(","),
+        임대인성함: it.landlordName||"",
+        임차인성함: it.tenantName||"",
+        임대인받을금액_만원: lExp,
+        임차인받을금액_만원: tExp,
+        합계_만원: +(lExp + tExp).toFixed(2),
+        잔금입주일: fmtDate10(it.dateClosing),
+        입금완료: it.paidDone ? "Y" : "N",
+        영수증발급: it.receiptIssued ? "Y" : "N",
+        메모요약: (it.memo||"").replace(/\s+/g," ").slice(0,120),
+      };
+    });
+    downloadCSV(`billing-${month}.csv`, rows, Object.keys(rows[0]));
+  };
+
+  // Esc로 모달 닫기
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setOpen(false); setEditId(null); } };
+    if (open) window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
   return (
     <main className="w-full max-w-none px-2 md:px-4 py-5">
       {/* 헤더 */}
       <div className="flex items-center justify-between mb-4">
-        <button
-          className="px-3 py-1.5 border rounded-lg hover:bg-gray-50"
-          onClick={() => router.push("/dashboard")}
-        >
-          ← 대시보드
-        </button>
+        <button className="px-3 py-1.5 border rounded-lg hover:bg-gray-50" onClick={() => router.push("/dashboard")}>← 대시보드</button>
         <h1 className="text-2xl font-bold">결제/청구</h1>
-        <button
-          className="px-3 py-1.5 border rounded-lg bg-blue-600 text-white hover:opacity-90"
-          onClick={() => { setEditId(null); resetInputs(); setOpen(true); }}
-        >
-          + 등록
-        </button>
+        <div className="flex gap-2">
+          <button className="px-3 py-1.5 border rounded-lg" onClick={exportDisplayedCSV}>CSV 다운로드</button>
+          <button className="px-3 py-1.5 border rounded-lg bg-blue-600 text-white hover:opacity-90" onClick={() => { setEditId(null); resetInputs(); setOpen(true); }}>
+            + 등록
+          </button>
+        </div>
       </div>
 
       {/* 합계 & 월필터 */}
@@ -646,22 +602,34 @@ export default function BillingPage() {
           <div className="flex flex-wrap items-center gap-3 justify-between mb-2">
             <label className="inline-flex items-center gap-2 whitespace-nowrap">
               <span className="text-gray-600">월 선택</span>
-              <input
-                type="month"
-                className="border rounded px-2 h-9 text-sm"
-                value={month}
-                onChange={(e) => setMonth(e.target.value)}
-              />
+              <input type="month" className="border rounded px-2 h-9 text-sm" value={month} onChange={(e) => setMonth(e.target.value)} />
             </label>
-            <div className="text-[12px] text-gray-600 whitespace-nowrap">
-              계약건수: {monthStats.cnt}건
-            </div>
+            <div className="text-[12px] text-gray-600 whitespace-nowrap">계약건수: {monthStats.cnt}건</div>
           </div>
           <div className="grid grid-cols-3 text-center">
             <div>공급가<br /><span className="text-xl font-bold">{fmtManSmart(monthStats.supply)}</span></div>
             <div>부가세<br /><span className="text-xl font-bold">{fmtManSmart(monthStats.vat)}</span></div>
             <div>합계<br /><span className="text-xl font-bold">{fmtManSmart(monthStats.total)}</span></div>
           </div>
+        </div>
+      </div>
+
+      {/* 검색/필터 줄 */}
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="주소·메모·담당·성함 검색" className="border rounded-lg px-3 py-1.5 w-72" />
+          <button className="px-2.5 py-1.5 border rounded-lg" onClick={()=>setQ("")}>지우기</button>
+        </div>
+        <div className="flex items-center gap-4">
+          <label className="inline-flex items-center gap-2 select-none">
+            <input type="checkbox" className="w-4 h-4" checked={onlyUnpaid} onChange={(e)=>setOnlyUnpaid(e.target.checked)} /><span>입금 미완료만</span>
+          </label>
+          <label className="inline-flex items-center gap-2 select-none">
+            <input type="checkbox" className="w-4 h-4" checked={onlyNoReceipt} onChange={(e)=>setOnlyNoReceipt(e.target.checked)} /><span>영수증 미발급만</span>
+          </label>
+          <label className="inline-flex items-center gap-2 select-none">
+            <input type="checkbox" className="w-4 h-4" checked={onlyThisMonth} onChange={(e)=>setOnlyThisMonth(e.target.checked)} /><span>이번달 잔금만</span>
+          </label>
         </div>
       </div>
 
@@ -693,14 +661,10 @@ export default function BillingPage() {
             </thead>
             <tbody>
               {loading && (
-                <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-gray-500">불러오는 중…</td>
-                </tr>
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-gray-500">불러오는 중…</td></tr>
               )}
               {!loading && displayedItems.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="px-3 py-10 text-center text-gray-500">해당 월 가계약 건이 없습니다.</td>
-                </tr>
+                <tr><td colSpan={8} className="px-3 py-10 text-center text-gray-500">조건에 맞는 건이 없습니다.</td></tr>
               )}
               {displayedItems.map((it, idx) => {
                 const stageText = [
@@ -724,9 +688,10 @@ export default function BillingPage() {
 
                 const feeIncluded = fmtMan2(lExp + tExp);
 
-                const isCompleted = !!it.paidDone && !!it.receiptIssued;
+                const paid = !!it.paidDone;
+                const recpt = !!it.receiptIssued;
+                const rowBg = paid && recpt ? "bg-green-50" : paid || recpt ? "bg-blue-50/40" : "";
 
-                // 담당 표기(구버전 agent 호환) — 두 줄(위: 임대, 아래: 임차)
                 const agentL = Array.isArray(it.agentL) ? it.agentL : (it.agent ? [it.agent] : []);
                 const agentT = Array.isArray(it.agentT) ? it.agentT : [];
                 const agentLText = agentL.length ? agentL.join(", ") : "-";
@@ -735,21 +700,23 @@ export default function BillingPage() {
                 return (
                   <tr
                     key={it._id ?? idx}
-                    className={`border-t align-middle cursor-pointer ${isCompleted ? "bg-green-50" : ""} hover:bg-gray-50`}
+                    className={`border-t align-middle cursor-pointer hover:bg-gray-50 ${rowBg}`}
                     style={{ height: ROW_H }}
                     onClick={() => { if (it._id) { setEditId(it._id); loadFromItem(it); setOpen(true); } }}
                     title="클릭하면 수정창이 열립니다"
                   >
-                    <td className={`px-3 py-2 ${CLAMP}`}>{fmtDate10(it.datePrelim)}</td>
+                    <td className={`px-3 py-2 ${CLAMP}`}>
+                      <div>{fmtDate10(it.datePrelim)}</div>
+                      <div className="text-[11px] text-gray-500 flex gap-1">
+                        {paid ? <span className="px-1.5 py-[1px] border rounded-full text-[10px]">입금완료</span> : null}
+                        {recpt ? <span className="px-1.5 py-[1px] border rounded-full text-[10px]">영수증</span> : null}
+                      </div>
+                    </td>
 
-                    {/* ✅ 두 줄 구조 */}
+                    {/* 두 줄 구조 */}
                     <td className="px-3 py-2">
-                      <div className={CLAMP} title={`임대인측: ${agentLText}`}>
-                        <span className="text-gray-600">임대인측: </span>{agentLText}
-                      </div>
-                      <div className={CLAMP} title={`임차인측: ${agentTText}`}>
-                        <span className="text-gray-600">임차인측: </span>{agentTText}
-                      </div>
+                      <div className={CLAMP} title={`임대인측: ${agentLText}`}><span className="text-gray-600">임대인측: </span>{agentLText}</div>
+                      <div className={CLAMP} title={`임차인측: ${agentTText}`}><span className="text-gray-600">임차인측: </span>{agentTText}</div>
                     </td>
 
                     <td className={`px-3 py-2 ${CLAMP}`} title={it.address ?? "-"}>{it.address ?? "-"}</td>
@@ -757,16 +724,12 @@ export default function BillingPage() {
 
                     <td className="px-3 py-2">
                       <div className={CLAMP} title={landMain}>{landMain}</div>
-                      <div className="text-[11px] text-gray-600 whitespace-nowrap overflow-hidden text-ellipsis" title={landSub}>
-                        {landSub}
-                      </div>
+                      <div className="text-[11px] text-gray-600 whitespace-nowrap overflow-hidden text-ellipsis" title={landSub}>{landSub}</div>
                     </td>
 
                     <td className="px-3 py-2">
                       <div className={CLAMP} title={tenMain}>{tenMain}</div>
-                      <div className="text-[11px] text-gray-600 whitespace-nowrap overflow-hidden text-ellipsis" title={tenSub}>
-                        {tenSub}
-                      </div>
+                      <div className="text-[11px] text-gray-600 whitespace-nowrap overflow-hidden text-ellipsis" title={tenSub}>{tenSub}</div>
                     </td>
 
                     <td className={`px-3 py-2 ${CLAMP}`}>{feeIncluded}</td>
@@ -840,25 +803,15 @@ export default function BillingPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {/* 왼쪽 */}
                   <div className="space-y-3">
-                    {/* ✅ 담당자: 임대/임차 각각, 쉼표로 여러명 */}
+                    {/* 담당 */}
                     <div className="max-w-[260px]">
                       <div className="text-xs font-medium text-gray-600 mb-1">담당(임대인측)</div>
-                      <input
-                        value={agentLText}
-                        onChange={(e) => setAgentLText(e.target.value)}
-                        className="border rounded px-3 h-10 text-sm w-full"
-                        placeholder="예: 강실장, 김과장"
-                      />
+                      <input value={agentLText} onChange={(e) => setAgentLText(e.target.value)} className="border rounded px-3 h-10 text-sm w-full" placeholder="예: 강실장, 김과장" />
                       <div className="text-[11px] text-gray-500 mt-1">쉼표(,)로 여러명 입력</div>
                     </div>
                     <div className="max-w-[260px]">
                       <div className="text-xs font-medium text-gray-600 mb-1">담당(임차인측)</div>
-                      <input
-                        value={agentTText}
-                        onChange={(e) => setAgentTText(e.target.value)}
-                        className="border rounded px-3 h-10 text-sm w-full"
-                        placeholder="예: 박대리"
-                      />
+                      <input value={agentTText} onChange={(e) => setAgentTText(e.target.value)} className="border rounded px-3 h-10 text-sm w-full" placeholder="예: 박대리" />
                       <div className="text-[11px] text-gray-500 mt-1">쉼표(,)로 여러명 입력</div>
                     </div>
 
@@ -937,22 +890,14 @@ export default function BillingPage() {
                       <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div>
                           <label className="text-xs font-medium text-gray-600 mb-1 block">수취시점</label>
-                          <select
-                            value={land.dueStage}
-                            onChange={(e) => setLand({ ...land, dueStage: e.target.value as Stage })}
-                            className="border rounded px-2 h-10 text-sm w-full"
-                          >
+                          <select value={land.dueStage} onChange={(e) => setLand({ ...land, dueStage: e.target.value as Stage })} className="border rounded px-2 h-10 text-sm w-full">
                             {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
                           </select>
                         </div>
                         <div className="flex items-center gap-3">
                           <label className="text-xs font-medium text-gray-600">부가세</label>
                           <label className="inline-flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={land.vatIncluded}
-                              onChange={(e) => setLand({ ...land, vatIncluded: e.target.checked })}
-                            />
+                            <input type="checkbox" checked={land.vatIncluded} onChange={(e) => setLand({ ...land, vatIncluded: e.target.checked })} />
                             <span className="text-sm">포함</span>
                           </label>
                         </div>
@@ -964,11 +909,7 @@ export default function BillingPage() {
 
                       <div>
                         <label className="text-xs font-medium text-gray-600 mb-1 block">중개보수(부가세포함) — 받을금액(만원)</label>
-                        <input
-                          value={land.expect}
-                          onChange={(e) => setLand({ ...land, expect: cleanUpTo2(e.target.value) })}
-                          className="border rounded px-3 h-10 text-sm w-full"
-                        />
+                        <input value={land.expect} onChange={(e) => setLand({ ...land, expect: cleanUpTo2(e.target.value) })} className="border rounded px-3 h-10 text-sm w-full" />
                         <div className="text-[11px] text-gray-600 mt-1">{`공급가:${fmtMan2(deriveVat(num(land.expect), true).supply)} / 부가세:${fmtMan2(deriveVat(num(land.expect), true).vat)} / 합계:${fmtMan2(num(land.expect))} (만원)`}</div>
                         <div className="text-[11px] text-blue-600 mt-1">자동(포함): {fmtMan2(deriveVat(calc.fee, false).total)} 만원</div>
                       </div>
@@ -983,9 +924,7 @@ export default function BillingPage() {
                           <input placeholder="현금" value={land.receivedCash ?? "0"} onChange={(e) => setLand({ ...land, receivedCash: cleanUpTo2(e.target.value) })} className="border rounded px-3 h-10 text-sm w-full" />
                           <input placeholder="계좌이체" value={land.receivedBank ?? "0"} onChange={(e) => setLand({ ...land, receivedBank: cleanUpTo2(e.target.value) })} className="border rounded px-3 h-10 text-sm w-full" />
                         </div>
-                        <div className="text-[11px] text-gray-600 mt-1">
-                          합계:{fmtMan2(num(land.receivedCash ?? "0") + num(land.receivedBank ?? "0"))} (만원)
-                        </div>
+                        <div className="text-[11px] text-gray-600 mt-1">합계:{fmtMan2(num(land.receivedCash ?? "0") + num(land.receivedBank ?? "0"))} (만원)</div>
                       </div>
                     </div>
                   </div>
@@ -999,22 +938,14 @@ export default function BillingPage() {
                       <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div>
                           <label className="text-xs font-medium text-gray-600 mb-1 block">수취시점</label>
-                          <select
-                            value={ten.dueStage}
-                            onChange={(e) => setTen({ ...ten, dueStage: e.target.value as Stage })}
-                            className="border rounded px-2 h-10 text-sm w-full"
-                          >
+                          <select value={ten.dueStage} onChange={(e) => setTen({ ...ten, dueStage: e.target.value as Stage })} className="border rounded px-2 h-10 text-sm w-full">
                             {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
                           </select>
                         </div>
                         <div className="flex items-center gap-3">
                           <label className="text-xs font-medium text-gray-600">부가세</label>
                           <label className="inline-flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={ten.vatIncluded}
-                              onChange={(e) => setTen({ ...ten, vatIncluded: e.target.checked })}
-                            />
+                            <input type="checkbox" checked={ten.vatIncluded} onChange={(e) => setTen({ ...ten, vatIncluded: e.target.checked })} />
                             <span className="text-sm">포함</span>
                           </label>
                         </div>
@@ -1026,11 +957,7 @@ export default function BillingPage() {
 
                       <div>
                         <label className="text-xs font-medium text-gray-600 mb-1 block">중개보수(부가세포함) — 받을금액(만원)</label>
-                        <input
-                          value={ten.expect}
-                          onChange={(e) => setTen({ ...ten, expect: cleanUpTo2(e.target.value) })}
-                          className="border rounded px-3 h-10 text-sm w-full"
-                        />
+                        <input value={ten.expect} onChange={(e) => setTen({ ...ten, expect: cleanUpTo2(e.target.value) })} className="border rounded px-3 h-10 text-sm w-full" />
                         <div className="text-[11px] text-gray-600 mt-1">{`공급가:${fmtMan2(deriveVat(num(ten.expect), true).supply)} / 부가세:${fmtMan2(deriveVat(num(ten.expect), true).vat)} / 합계:${fmtMan2(num(ten.expect))} (만원)`}</div>
                         <div className="text-[11px] text-blue-600 mt-1">자동(포함): {fmtMan2(deriveVat(calc.fee, false).total)} 만원</div>
                       </div>
@@ -1045,9 +972,7 @@ export default function BillingPage() {
                           <input placeholder="현금" value={ten.receivedCash ?? "0"} onChange={(e) => setTen({ ...ten, receivedCash: cleanUpTo2(e.target.value) })} className="border rounded px-3 h-10 text-sm w-full" />
                           <input placeholder="계좌이체" value={ten.receivedBank ?? "0"} onChange={(e) => setTen({ ...ten, receivedBank: cleanUpTo2(e.target.value) })} className="border rounded px-3 h-10 text-sm w-full" />
                         </div>
-                        <div className="text-[11px] text-gray-600 mt-1">
-                          합계:{fmtMan2(num(ten.receivedCash ?? "0") + num(ten.receivedBank ?? "0"))} (만원)
-                        </div>
+                        <div className="text-[11px] text-gray-600 mt-1">합계:{fmtMan2(num(ten.receivedCash ?? "0") + num(ten.receivedBank ?? "0"))} (만원)</div>
                       </div>
                     </div>
                   </div>
@@ -1061,30 +986,18 @@ export default function BillingPage() {
 
               <div className="flex items-center gap-4">
                 <label className="inline-flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={paidDone}
-                    onChange={(e) => setPaidDone(e.target.checked)}
-                  />
+                  <input type="checkbox" checked={paidDone} onChange={(e) => setPaidDone(e.target.checked)} />
                   <span className="text-sm">입금 완료</span>
                 </label>
                 <label className="inline-flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={receiptIssued}
-                    onChange={(e) => setReceiptIssued(e.target.checked)}
-                  />
+                  <input type="checkbox" checked={receiptIssued} onChange={(e) => setReceiptIssued(e.target.checked)} />
                   <span className="text-sm">영수증 발급</span>
                 </label>
               </div>
 
               <div className="flex gap-2">
                 {editId && (
-                  <button
-                    className="px-3 py-1.5 border rounded-lg text-red-600 border-red-300 hover:bg-red-50"
-                    onClick={handleDelete}
-                    title="현재 청구를 완전히 삭제합니다"
-                  >
+                  <button className="px-3 py-1.5 border rounded-lg text-red-600 border-red-300 hover:bg-red-50" onClick={handleDelete} title="현재 청구를 완전히 삭제합니다">
                     삭제
                   </button>
                 )}

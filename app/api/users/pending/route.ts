@@ -1,7 +1,35 @@
-import { repo } from "../../_lib/repo";
-import { requireAdmin } from "../../_lib/roles";
+// app/api/users/pending/route.ts
+import { NextResponse } from "next/server";
+import clientPromise from "../../../../lib/db";
 
-export async function GET(req: Request) {
-  const guard = requireAdmin(req); if (guard) return guard;
-  return Response.json(repo.users.pending());
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const DB = process.env.MONGODB_DB || "daesu";
+const PENDING = "users_pending";
+
+function json(data: any, init: ResponseInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  headers.set("Pragma", "no-cache");
+  headers.set("Expires", "0");
+  return NextResponse.json(data, { ...init, headers });
+}
+
+export async function GET() {
+  try {
+    const cli = await clientPromise;
+    const rows = await cli
+      .db(DB)
+      .collection(PENDING)
+      .find({})
+      .project({ passwordHash: 0 }) // 민감정보 숨김
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    // ✅ 배열 그대로 반환 (UI가 Array.isArray(...)로 처리)
+    return json(rows);
+  } catch (e: any) {
+    return json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+  }
 }

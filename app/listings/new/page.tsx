@@ -37,6 +37,7 @@ const formatPhoneLive = (v: string) => {
   if (d.length <= 7) return `${d.slice(0, 3)}-${d.slice(3)}`;
   return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
 };
+
 type Photo = { name: string; dataUrl: string };
 const COLOR_CHOICES = [
   { key: "", name: "없음", bg: "#ffffff", border: "#e5e7eb" },
@@ -49,6 +50,7 @@ const COLOR_CHOICES = [
 
 /** ===== 폼 타입 ===== */
 type Form = {
+  agent: string;                  // ★ 담당자(3글자 승인명만)
   dealType: Deal | "";
   buildingType: BtCat | "";
 
@@ -71,7 +73,7 @@ type Form = {
   rooms: string;
   baths: string;
   loft: boolean;
-  illegal: boolean;                 // ★ 위반건축물
+  illegal: boolean;
 
   lh: boolean; sh: boolean; hug: boolean; hf: boolean; isBiz: boolean; airbnb: boolean;
   guaranteeInsured: boolean;
@@ -80,11 +82,12 @@ type Form = {
   tenantName: string;   tenantPhone: string;
   memo: string;
 
-  labelColor: string;               // ★ 표시색
-  photos: Photo[];                  // ★ 사진
+  labelColor: string;
+  photos: Photo[];
 };
 
 const initForm: Form = {
+  agent: "",
   dealType: "",
   buildingType: "",
   addressJibeon: "",
@@ -125,7 +128,7 @@ const initForm: Form = {
 const L = ({ children }: { children: React.ReactNode }) => (
   <label className="text-xs font-medium text-gray-600 mb-1 block">{children}</label>
 );
-function NumericInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+function NumericInput(props: React.InputHTMLAttributes<HTMLInputElement> & { value: string }) {
   const { value, onChange, ...rest } = props;
   return (
     <input
@@ -133,20 +136,17 @@ function NumericInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
       inputMode="numeric"
       autoComplete="off"
       className={"border rounded px-3 h-10 text-sm w-full " + (props.className || "")}
-      value={value as string}
-      onChange={onChange}
-      onBlur={(e) => {
-        const v = (e.currentTarget.value || "").replace(/\D/g, "");
-        if (v !== e.currentTarget.value) {
-          e.currentTarget.value = v;
-          (onChange as any)?.({ target: { value: v } });
-        }
+      value={value}
+      onChange={(e) => {
+        const v = e.currentTarget.value.replace(/\D/g, "");
+        if (v !== e.currentTarget.value) e.currentTarget.value = v;
+        onChange?.(e as any);
       }}
       {...rest}
     />
   );
 }
-function DecimalInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+function DecimalInput(props: React.InputHTMLAttributes<HTMLInputElement> & { value: string }) {
   const { value, onChange, ...rest } = props;
   return (
     <input
@@ -154,26 +154,23 @@ function DecimalInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
       inputMode="decimal"
       autoComplete="off"
       className={"border rounded px-3 h-10 text-sm w-full " + (props.className || "")}
-      value={value as string}
-      onChange={onChange}
-      onBlur={(e) => {
-        let v = (e.currentTarget.value || "").replace(/[^0-9.]/g, "");
+      value={value}
+      onChange={(e) => {
+        let v = e.currentTarget.value.replace(/[^0-9.]/g, "");
         const i = v.indexOf(".");
         if (i !== -1) v = v.slice(0, i + 1) + v.slice(i + 1).replace(/\./g, "");
-        if (v !== e.currentTarget.value) {
-          e.currentTarget.value = v;
-          (onChange as any)?.({ target: { value: v } });
-        }
+        if (v !== e.currentTarget.value) e.currentTarget.value = v;
+        onChange?.(e as any);
       }}
       {...rest}
     />
   );
 }
-const Text = (props: React.InputHTMLAttributes<HTMLInputElement>) => (
+const Text = (props: React.InputHTMLAttributes<HTMLInputElement> & { value: string }) => (
   <input type="text" autoComplete="off" {...props}
     className={"border rounded px-3 h-10 text-sm w-full " + (props.className || "")}/>
 );
-const Textarea = (props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) => (
+const Textarea = (props: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { value: string }) => (
   <textarea {...props}
     className={"border rounded px-3 py-2 text-sm w-full min-h-[90px] " + (props.className || "")}/>
 );
@@ -195,13 +192,11 @@ const ToggleBtn = ({ active, onClick, children }: { active: boolean; onClick: ()
   </button>
 );
 
-/** ===== 사진 뷰어(모달 + 좌/우 내비) ===== */
-function PhotoViewer({
-  photos, index, onClose, onPrev, onNext,
-}: { photos: Photo[]; index: number; onClose: () => void; onPrev: () => void; onNext: () => void; }) {
+/** ===== 사진 뷰어 & 업로더 ===== */
+function PhotoViewer({ photos, index, onClose, onPrev, onNext }:{
+  photos: Photo[]; index: number; onClose: () => void; onPrev: () => void; onNext: () => void;
+}) {
   const p = photos[index];
-
-  // 키보드 단축키: ESC, ←, →
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -211,21 +206,16 @@ function PhotoViewer({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, onPrev, onNext]);
-
   if (!p) return null;
-
   return (
     <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
       <div className="relative bg-white rounded-xl shadow-2xl p-3" style={{ width: "80vw", maxWidth: 1400 }} onClick={(e) => e.stopPropagation()}>
-        {/* 헤더 */}
         <div className="flex items-center justify-between mb-2">
           <div className="font-semibold text-sm truncate pr-2">
             {p.name} <span className="text-gray-400">({index + 1}/{photos.length})</span>
           </div>
           <button className="border rounded px-2 py-0.5 text-sm hover:bg-gray-50" onClick={onClose}>닫기</button>
         </div>
-
-        {/* 이미지 + 좌/우 버튼 */}
         <div className="relative flex items-center justify-center">
           {photos.length > 1 && (
             <>
@@ -238,8 +228,6 @@ function PhotoViewer({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={p.dataUrl} alt={p.name} className="max-w-[76vw] max-h-[76vh] w-auto h-auto object-contain rounded" />
         </div>
-
-        {/* 하단 */}
         <div className="mt-3 flex items-center justify-between">
           <a className="inline-flex items-center gap-2 text-sm underline" href={p.dataUrl} download={p.name}>이미지 다운로드</a>
           {photos.length > 1 && <div className="text-xs text-gray-500">←/→ 키로 넘겨볼 수 있어요</div>}
@@ -248,17 +236,12 @@ function PhotoViewer({
     </div>
   );
 }
-
-/** ===== 사진 업로더 (미리보기 + 내비) ===== */
 function PhotoUploader({ value, onChange }: { value: Photo[]; onChange: (p: Photo[]) => void; }) {
   const [previewIdx, setPreviewIdx] = useState<number | null>(null);
-
   async function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
-    // await 전에 input 참조 저장 (SyntheticEvent 풀림 방지)
     const input = e.currentTarget;
     const files = Array.from(input.files || []);
     if (!files.length) return;
-
     const toDataURL = (f: File) =>
       new Promise<Photo>((resolve, reject) => {
         const fr = new FileReader();
@@ -266,27 +249,21 @@ function PhotoUploader({ value, onChange }: { value: Photo[]; onChange: (p: Phot
         fr.onerror = reject;
         fr.readAsDataURL(f);
       });
-
     const arr = await Promise.all(files.map(toDataURL));
     onChange([...(value || []), ...arr]);
-
     try { input.value = ""; } catch {}
   }
-
   function removeAt(i: number) {
     const copy = [...value];
     copy.splice(i, 1);
     onChange(copy);
   }
-
   const hasPreview = previewIdx != null && previewIdx >= 0 && previewIdx < (value?.length || 0);
-
   return (
     <>
       <div className="flex items-center gap-2">
         <input type="file" accept="image/*" multiple onChange={onFiles} />
       </div>
-
       {(value?.length || 0) > 0 && (
         <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
           {value.map((p, i) => (
@@ -300,45 +277,21 @@ function PhotoUploader({ value, onChange }: { value: Photo[]; onChange: (p: Phot
                 title="클릭하여 미리보기"
               />
               <div className="absolute top-1 right-1 flex gap-1">
-                <a
-                  href={p.dataUrl}
-                  download={p.name}
-                  className="bg-white/95 border rounded px-1 text-[11px]"
-                  onClick={(ev) => ev.stopPropagation()}
-                >
-                  다운
-                </a>
-                <button
-                  type="button"
-                  className="bg-white/95 border rounded px-1 text-[11px]"
-                  onClick={(ev) => {
-                    ev.stopPropagation();
-                    removeAt(i);
-                  }}
-                >
-                  삭제
-                </button>
+                <a href={p.dataUrl} download={p.name} className="bg-white/95 border rounded px-1 text-[11px]" onClick={(ev) => ev.stopPropagation()}>다운</a>
+                <button type="button" className="bg-white/95 border rounded px-1 text-[11px]"
+                  onClick={(ev) => { ev.stopPropagation(); removeAt(i); }}>삭제</button>
               </div>
             </div>
           ))}
         </div>
       )}
-
       {hasPreview && (
         <PhotoViewer
           photos={value}
           index={previewIdx!}
           onClose={() => setPreviewIdx(null)}
-          onPrev={() =>
-            setPreviewIdx((idx) =>
-              idx == null ? 0 : (idx - 1 + value.length) % value.length
-            )
-          }
-          onNext={() =>
-            setPreviewIdx((idx) =>
-              idx == null ? 0 : (idx + 1) % value.length
-            )
-          }
+          onPrev={() => setPreviewIdx((idx) => (idx == null ? 0 : (idx - 1 + value.length) % value.length))}
+          onNext={() => setPreviewIdx((idx) => (idx == null ? 0 : (idx + 1) % value.length))}
         />
       )}
     </>
@@ -350,6 +303,36 @@ export default function NewListingPage() {
   const router = useRouter();
   const [f, setF] = useState<Form>(initForm);
   const [saving, setSaving] = useState(false);
+
+  // 승인된 담당자(설정) 연동
+  const [agents, setAgents] = useState<string[]>([]);
+  const agentsReady = agents.length > 0;
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/staff?approved=1", { cache: "no-store" });
+        const list = (await res.json()) as string[]; // ["김부장","김실장",...]
+        // 3글자 이름만 채택
+        const only3 = (Array.isArray(list) ? list : []).filter(
+          (s) => typeof s === "string" && s.trim().length === 3
+        );
+        if (alive) setAgents(only3);
+      } catch {
+        if (alive) setAgents([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // 승인 목록이 바뀌었는데 현재 선택값이 목록에 없으면 자동 초기화
+  useEffect(() => {
+    if (!f.agent) return;
+    if (agents.length && !agents.includes(f.agent)) {
+      setF((s) => ({ ...s, agent: "" }));
+    }
+  }, [agents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 코드 채번용 전체 목록
   const [allItems, setAllItems] = useState<Array<{ code?: string }>>([]);
@@ -380,6 +363,9 @@ export default function NewListingPage() {
 
   const errors = useMemo(() => {
     const e: Record<string, string> = {};
+    if (!f.agent || !agents.includes(f.agent)) {
+      e.agent = agentsReady ? "담당자를 선택하세요." : "설정에서 담당자를 승인해 주세요.";
+    }
     if (!f.dealType) e.dealType = "거래유형을 선택하세요.";
     if (!f.buildingType) e.buildingType = "건물유형을 선택하세요.";
     if (f.addressJibeon && !/동\s*\d+\-\d+/.test(f.addressJibeon)) {
@@ -391,14 +377,12 @@ export default function NewListingPage() {
       if (!dep) e.deposit = "보증금(만원)은 필수입니다.";
       if (!rent) e.rent = "월세(만원)은 필수입니다.";
     } else if (f.dealType === "전세" || f.dealType === "매매") {
-      if (!dep)
-        e.deposit =
-          (f.dealType === "전세" ? "전세금(만원)" : "매매가(만원)") + "는 필수입니다.";
+      if (!dep) e.deposit = (f.dealType === "전세" ? "전세금(만원)" : "매매가(만원)") + "는 필수입니다.";
     }
     if (f.areaM2 && !/^\d+(\.\d+)?$/.test(f.areaM2))
       e.areaM2 = "숫자 또는 소수로 입력하세요. 예: 44.2";
     return e;
-  }, [f]);
+  }, [f, agents, agentsReady]);
 
   const hasError = Object.keys(errors).length > 0;
 
@@ -422,14 +406,19 @@ export default function NewListingPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (hasError) return alert("필수/숫자 항목을 확인해주세요.");
+    // 승인 목록 자체가 없을 때 저장 차단(UX 가드)
+    if (!agentsReady) {
+      alert("설정에서 담당자를 승인해 주세요. (담당자 목록이 비어 있음)");
+      return;
+    }
+    if (hasError) return alert("필수 항목을 확인해주세요.");
     if (!nextCode) return alert("거래유형/건물유형을 먼저 선택하세요.");
 
     setSaving(true);
     try {
       const body = {
         createdAt: new Date().toISOString(),
-        agent: "",
+        agent: f.agent,                         // ★ 담당자(승인명)
         code: nextCode,
         dealType: f.dealType as Deal,
         buildingType: f.buildingType as string,
@@ -467,14 +456,11 @@ export default function NewListingPage() {
           f.hug ? "HUG" : "",
           f.hf ? "HF" : "",
           f.airbnb ? "에어비앤비" : "",
-        ]
-          .filter(Boolean)
-          .join(" | "),
+        ].filter(Boolean).join(" | "),
 
         vacant: f.vacant,
         completed: false,
 
-        // ★ 새 필드들 서버로 그대로 전송
         labelColor: f.labelColor || "",
         loft: !!f.loft,
         illegal: !!f.illegal,
@@ -528,6 +514,31 @@ export default function NewListingPage() {
           }
         >
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* 담당자 선택 */}
+            <div>
+              <L>담당자 *</L>
+              <select
+                aria-label="담당자"
+                className="border rounded px-3 h-10 text-sm w-full"
+                value={f.agent}
+                onChange={(e) => setF((s) => ({ ...s, agent: e.target.value }))}
+                disabled={!agentsReady}
+              >
+                <option value="">
+                  {agentsReady ? "담당자 선택" : "설정에서 승인된 담당자가 없습니다"}
+                </option>
+                {agents.map((a) => (
+                  <option key={a} value={a}>{a}</option>
+                ))}
+              </select>
+              {(!agentsReady) && (
+                <p className="text-[11px] text-amber-600 mt-1">
+                  설정 &gt; 담당자 승인 후 사용 가능합니다.
+                </p>
+              )}
+              {errors.agent && agentsReady && <p className="text-xs text-red-600 mt-1">{errors.agent}</p>}
+            </div>
+
             <div>
               <L>거래유형 *</L>
               <div className="flex gap-2">
@@ -535,7 +546,7 @@ export default function NewListingPage() {
                   <ToggleBtn
                     key={d}
                     active={f.dealType === d}
-                    onClick={() => set("dealType", f.dealType === d ? "" : d)}
+                    onClick={() => setF((s) => ({ ...s, dealType: s.dealType === d ? "" : d }))}
                   >
                     {d}
                   </ToggleBtn>
@@ -543,14 +554,17 @@ export default function NewListingPage() {
               </div>
               {errors.dealType && <p className="text-xs text-red-600 mt-1">{errors.dealType}</p>}
             </div>
-            <div className="md:col-span-3">
+
+            <div className="md:col-span-2">
               <L>건물유형 *</L>
               <div className="flex flex-wrap gap-2">
                 {BT_CATS.map((c) => (
                   <ToggleBtn
                     key={c}
                     active={f.buildingType === c}
-                    onClick={() => set("buildingType", f.buildingType === c ? "" : (c as BtCat))}
+                    onClick={() =>
+                      setF((s) => ({ ...s, buildingType: s.buildingType === c ? "" : (c as BtCat) }))
+                    }
                   >
                     {c}
                   </ToggleBtn>
@@ -566,19 +580,19 @@ export default function NewListingPage() {
           <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
             <div className="md:col-span-2">
               <L>{f.dealType === "매매" ? "매매가(만원) *" : f.dealType === "전세" ? "전세금(만원) *" : "보증금(만원) *"}</L>
-              <NumericInput value={f.deposit} onChange={(e) => set("deposit", (e.target as HTMLInputElement).value)} placeholder="예: 1000" />
+              <NumericInput value={f.deposit} onChange={(e) => setF((s)=>({ ...s, deposit: (e.target as HTMLInputElement).value }))} placeholder="예: 1000" />
             </div>
             <div className="md:col-span-2">
               <L>월세(만원){f.dealType === "월세" ? " *" : ""}</L>
-              <NumericInput value={f.rent} onChange={(e) => set("rent", (e.target as HTMLInputElement).value)} placeholder={f.dealType === "월세" ? "필수" : "월세 선택 시 입력"} />
+              <NumericInput value={f.rent} onChange={(e) => setF((s)=>({ ...s, rent: (e.target as HTMLInputElement).value }))} placeholder={f.dealType === "월세" ? "필수" : "월세 선택 시 입력"} />
             </div>
             <div className="md:col-span-1">
               <L>관리비(만원)</L>
-              <NumericInput value={f.mgmt} onChange={(e) => set("mgmt", (e.target as HTMLInputElement).value)} placeholder="예: 7" />
+              <NumericInput value={f.mgmt} onChange={(e) => setF((s)=>({ ...s, mgmt: (e.target as HTMLInputElement).value }))} placeholder="예: 7" />
             </div>
             <div className="md:col-span-3">
               <L>관리비 포함항목</L>
-              <Text value={f.mgmtItems} onChange={(e) => set("mgmtItems", (e.target as HTMLInputElement).value)} placeholder="예: 수도, 인터넷, 청소비" />
+              <Text value={f.mgmtItems} onChange={(e) => setF((s)=>({ ...s, mgmtItems: (e.target as HTMLInputElement).value }))} placeholder="예: 수도, 인터넷, 청소비" />
             </div>
           </div>
         </Section>
@@ -590,28 +604,57 @@ export default function NewListingPage() {
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
                   <L>주소(지번)</L>
-                  <span className="text-[11px] text-gray-500">* 지번만 입력(도로명/상세주소 제외)</span>
+                  <span className="text-[11px] text-gray-500">
+                    * 지번만 입력(도로명/상세주소 제외)
+                  </span>
                 </div>
-                <Text value={f.addressJibeon} onChange={(e) => set("addressJibeon", (e.target as HTMLInputElement).value)} placeholder="예: 천호동 166-21" className="w-[220px]" />
-                {errors.addressJibeon && <p className="text-xs text-red-600 mt-1">{errors.addressJibeon}</p>}
+                <Text
+                  value={f.addressJibeon}
+                  onChange={(e) => setF((s)=>({ ...s, addressJibeon: (e.target as HTMLInputElement).value }))}
+                  placeholder="예: 천호동 166-21"
+                  className="w-[220px]"
+                />
+                {errors.addressJibeon && (
+                  <p className="text-xs text-red-600 mt-1">{errors.addressJibeon}</p>
+                )}
               </div>
 
               <div className="flex flex-col">
                 <L>층</L>
-                <Text value={f.floor} onChange={(e) => set("floor", (e.target as HTMLInputElement).value)} placeholder="예: 3F" className="w-[120px]" />
+                <Text
+                  value={f.floor}
+                  onChange={(e) => setF((s)=>({ ...s, floor: (e.target as HTMLInputElement).value }))}
+                  placeholder="예: 3F"
+                  className="w-[120px]"
+                />
               </div>
 
               <div className="flex flex-col">
                 <L>호실</L>
-                <Text value={f.unit} onChange={(e) => set("unit", (e.target as HTMLInputElement).value)} placeholder="예: 301호" className="w-[120px]" />
+                <Text
+                  value={f.unit}
+                  onChange={(e) => setF((s)=>({ ...s, unit: (e.target as HTMLInputElement).value }))}
+                  placeholder="예: 301호"
+                  className="w-[120px]"
+                />
               </div>
 
               <div className="flex flex-col">
                 <L>입주가능일</L>
                 <div className="flex items-center gap-2">
-                  <input tabIndex={-1} type="date" className="border rounded px-3 h-10 text-sm w-[180px]" value={f.availableDate} onChange={(e) => set("availableDate", (e.target as HTMLInputElement).value)} />
+                  <input
+                    type="date"
+                    className="border rounded px-3 h-10 text-sm w-[180px]"
+                    value={f.availableDate}
+                    onChange={(e) => setF((s)=>({ ...s, availableDate: (e.target as HTMLInputElement).value }))}
+                  />
                   <label className="inline-flex items-center gap-2 select-none">
-                    <input tabIndex={-1} type="checkbox" className="w-4 h-4" checked={f.availableNegotiable} onChange={(e) => set("availableNegotiable", e.target.checked)} />
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4"
+                      checked={f.availableNegotiable}
+                      onChange={(e) => setF((s)=>({ ...s, availableNegotiable: e.target.checked }))}
+                    />
                     <span className="text-sm text-gray-700">협의가능</span>
                   </label>
                 </div>
@@ -620,7 +663,12 @@ export default function NewListingPage() {
               <div className="pb-0.5">
                 <L>&nbsp;</L>
                 <label className="inline-flex items-center gap-2 select-none h-10">
-                  <input tabIndex={-1} type="checkbox" className="w-4 h-4" checked={f.vacant} onChange={(e) => set("vacant", e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4"
+                    checked={f.vacant}
+                    onChange={(e) => setF((s)=>({ ...s, vacant: e.target.checked }))}
+                  />
                   <span className="text-sm text-gray-700">공실</span>
                 </label>
               </div>
@@ -628,15 +676,30 @@ export default function NewListingPage() {
 
             <div className="flex flex-wrap items-center gap-6">
               <label className="inline-flex items-center gap-2 select-none">
-                <input tabIndex={-1} type="checkbox" className="w-4 h-4" checked={f.elevator} onChange={(e) => set("elevator", e.target.checked)} />
+                <input
+                  type="checkbox"
+                  className="w-4 h-4"
+                  checked={f.elevator}
+                  onChange={(e) => setF((s)=>({ ...s, elevator: e.target.checked }))}
+                />
                 <span className="text-sm text-gray-700">엘리베이터 있음</span>
               </label>
               <label className="inline-flex items-center gap-2 select-none">
-                <input tabIndex={-1} type="checkbox" className="w-4 h-4" checked={f.parking} onChange={(e) => set("parking", e.target.checked)} />
+                <input
+                  type="checkbox"
+                  className="w-4 h-4"
+                  checked={f.parking}
+                  onChange={(e) => setF((s)=>({ ...s, parking: e.target.checked }))}
+                />
                 <span className="text-sm text-gray-700">주차 가능</span>
               </label>
               <label className="inline-flex items-center gap-2 select-none">
-                <input tabIndex={-1} type="checkbox" className="w-4 h-4" checked={f.pets} onChange={(e) => set("pets", e.target.checked)} />
+                <input
+                  type="checkbox"
+                  className="w-4 h-4"
+                  checked={f.pets}
+                  onChange={(e) => setF((s)=>({ ...s, pets: e.target.checked }))}
+                />
                 <span className="text-sm text-gray-700">반려동물 가능</span>
               </label>
             </div>
@@ -648,25 +711,49 @@ export default function NewListingPage() {
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
               <L>전용면적(㎡)</L>
-              <DecimalInput value={f.areaM2} onChange={(e) => set("areaM2", (e.target as HTMLInputElement).value)} placeholder="예: 44.2" />
-              {errors.areaM2 && <p className="text-xs text-red-600 mt-1">{errors.areaM2}</p>}
+              <DecimalInput
+                value={f.areaM2}
+                onChange={(e) => setF((s)=>({ ...s, areaM2: (e.target as HTMLInputElement).value }))}
+                placeholder="예: 44.2"
+              />
+              {errors.areaM2 && (
+                <p className="text-xs text-red-600 mt-1">{errors.areaM2}</p>
+              )}
               <div className="text-xs text-gray-500 mt-1">≈ {pyeong.toFixed(2)} 평</div>
             </div>
             <div>
               <L>방(개)</L>
-              <NumericInput value={f.rooms} onChange={(e) => set("rooms", (e.target as HTMLInputElement).value)} placeholder="예: 1" />
+              <NumericInput
+                value={f.rooms}
+                onChange={(e) => setF((s)=>({ ...s, rooms: (e.target as HTMLInputElement).value }))}
+                placeholder="예: 1"
+              />
             </div>
             <div>
               <L>욕실(개)</L>
-              <NumericInput value={f.baths} onChange={(e) => set("baths", (e.target as HTMLInputElement).value)} placeholder="예: 1" />
+              <NumericInput
+                value={f.baths}
+                onChange={(e) => setF((s)=>({ ...s, baths: (e.target as HTMLInputElement).value }))}
+                placeholder="예: 1"
+              />
             </div>
             <div className="flex items-end gap-6">
               <label className="inline-flex items-center gap-2 select-none">
-                <input tabIndex={-1} type="checkbox" className="w-4 h-4" checked={f.loft} onChange={(e) => set("loft", e.target.checked)} />
+                <input
+                  type="checkbox"
+                  className="w-4 h-4"
+                  checked={f.loft}
+                  onChange={(e) => setF((s)=>({ ...s, loft: e.target.checked }))}
+                />
                 <span className="text-sm text-gray-700">복층 여부</span>
               </label>
               <label className="inline-flex items-center gap-2 select-none">
-                <input tabIndex={-1} type="checkbox" className="w-4 h-4" checked={f.illegal} onChange={(e) => set("illegal", e.target.checked)} />
+                <input
+                  type="checkbox"
+                  className="w-4 h-4"
+                  checked={f.illegal}
+                  onChange={(e) => setF((s)=>({ ...s, illegal: e.target.checked }))}
+                />
                 <span className="text-sm text-gray-700">위반건축물</span>
               </label>
             </div>
@@ -686,41 +773,73 @@ export default function NewListingPage() {
               ["에어비앤비", "airbnb"],
             ].map(([label, key]) => (
               <label key={key} className="inline-flex items-center gap-2">
-                <input tabIndex={-1} type="checkbox" className="w-4 h-4" checked={(f as any)[key]} onChange={(e) => set(key as any, e.target.checked)} />
+                <input
+                  type="checkbox"
+                  className="w-4 h-4"
+                  checked={(f as any)[key]}
+                  onChange={(e) => setF((s)=>({ ...(s as any), [key]: e.target.checked }))}
+                />
                 <span className="text-sm">{label}</span>
               </label>
             ))}
           </div>
         </Section>
 
-        {/* 연락 / 메모 / 색 / 사진 */}
+        {/* 연락 / 메모 */}
         <Section title="연락 / 메모">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <L>임대인 성함</L>
-              <Text value={f.landlordName} onChange={(e) => set("landlordName", (e.target as HTMLInputElement).value)} placeholder="예: 홍길동 또는 관리인" />
+              <L>임대인 성함 (관리인이면 '관리인'으로 적기)</L>
+              <Text
+                value={f.landlordName}
+                onChange={(e) => setF((s)=>({ ...s, landlordName: (e.target as HTMLInputElement).value }))}
+                placeholder="예: 홍길동 또는 관리인"
+              />
             </div>
             <div>
               <L>임대인 연락처</L>
-              <Text value={f.landlordPhone} onChange={(e) => set("landlordPhone", formatPhoneLive((e.target as HTMLInputElement).value))} placeholder="010-0000-0000" />
+              <Text
+                value={f.landlordPhone}
+                onChange={(e) => setF((s)=>({ ...s, landlordPhone: formatPhoneLive((e.target as HTMLInputElement).value) }))}
+                placeholder="010-0000-0000"
+              />
             </div>
             <div>
-              <L>임차인 성함</L>
-              <Text value={f.tenantName} onChange={(e) => set("tenantName", (e.target as HTMLInputElement).value)} placeholder="예: 김임차 또는 관리인" />
+              <L>임차인 성함 (관리인이면 '관리인'으로 적기)</L>
+              <Text
+                value={f.tenantName}
+                onChange={(e) => setF((s)=>({ ...s, tenantName: (e.target as HTMLInputElement).value }))}
+                placeholder="예: 김임차 또는 관리인"
+              />
             </div>
             <div>
               <L>임차인 연락처</L>
-              <Text value={f.tenantPhone} onChange={(e) => set("tenantPhone", formatPhoneLive((e.target as HTMLInputElement).value))} placeholder="010-0000-0000" />
+              <Text
+                value={f.tenantPhone}
+                onChange={(e) => setF((s)=>({ ...s, tenantPhone: formatPhoneLive((e.target as HTMLInputElement).value) }))}
+                placeholder="010-0000-0000"
+              />
             </div>
 
             <div className="md:col-span-2">
               <L>표시색(선택)</L>
               <div className="flex flex-wrap gap-2">
                 {COLOR_CHOICES.map((c) => (
-                  <label key={c.key || "none"}
-                    className={"px-3 py-1 rounded-full border cursor-pointer text-sm " + (f.labelColor === c.key ? "outline outline-2 outline-black" : "")}
-                    style={{ background: c.bg, borderColor: c.border }}>
-                    <input type="radio" className="hidden" value={c.key} checked={f.labelColor === c.key} onChange={() => set("labelColor", c.key)} />
+                  <label
+                    key={c.key || "none"}
+                    className={
+                      "px-3 py-1 rounded-full border cursor-pointer text-sm " +
+                      (f.labelColor === c.key ? "outline outline-2 outline-black" : "")
+                    }
+                    style={{ background: c.bg, borderColor: c.border }}
+                  >
+                    <input
+                      type="radio"
+                      className="hidden"
+                      value={c.key}
+                      checked={f.labelColor === c.key}
+                      onChange={() => setF((s)=>({ ...s, labelColor: c.key }))}
+                    />
                     {c.name}
                   </label>
                 ))}
@@ -729,12 +848,16 @@ export default function NewListingPage() {
 
             <div className="md:col-span-2">
               <L>메모</L>
-              <Textarea value={f.memo} onChange={(e) => set("memo", (e.target as HTMLTextAreaElement).value)} placeholder="현장 특이사항, 협의 내용 등" />
+              <Textarea
+                value={f.memo}
+                onChange={(e) => setF((s)=>({ ...s, memo: (e.target as HTMLTextAreaElement).value }))}
+                placeholder="현장 특이사항, 협의 내용 등"
+              />
             </div>
 
             <div className="md:col-span-2">
               <L>사진</L>
-              <PhotoUploader value={f.photos} onChange={(p) => set("photos", p)} />
+              <PhotoUploader value={f.photos} onChange={(p) => setF((s)=>({ ...s, photos: p }))} />
             </div>
           </div>
         </Section>
