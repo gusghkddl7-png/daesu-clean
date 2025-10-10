@@ -3,8 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const runtime = "nodejs";
-export const preferredRegion = "icn1";
 
 function noCache(init?: ResponseInit) {
   const h = new Headers(init?.headers);
@@ -15,12 +13,12 @@ function noCache(init?: ResponseInit) {
   return h;
 }
 
-// 호스트별 Juso 키 선택
+// 호스트별 Juso 키 선택(.env.local의 3개 키 사용)
 function pickJusoKey(host: string | null) {
   const h = (host || "").toLowerCase();
-  if (h.includes("vercel.app")) return process.env.JUSO_KEY_VERCEL || process.env.JUSO_KEY;
-  if (h.includes("127.0.0.1")) return process.env.JUSO_KEY_LOOPBACK || process.env.JUSO_KEY_LOCAL || process.env.JUSO_KEY;
-  if (h.includes("localhost")) return process.env.JUSO_KEY_LOCAL || process.env.JUSO_KEY_LOOPBACK || process.env.JUSO_KEY;
+  if (h.includes("vercel.app"))   return process.env.JUSO_KEY_VERCEL || process.env.JUSO_KEY;
+  if (h.includes("127.0.0.1"))    return process.env.JUSO_KEY_LOOPBACK || process.env.JUSO_KEY_LOCALHOST || process.env.JUSO_KEY;
+  if (h.includes("localhost"))    return process.env.JUSO_KEY_LOCALHOST || process.env.JUSO_KEY_LOOPBACK || process.env.JUSO_KEY;
   return process.env.JUSO_KEY;
 }
 
@@ -43,7 +41,7 @@ export async function GET(req: NextRequest) {
     const host = req.headers.get("host");
     const referer =
       (process.env.NEXT_PUBLIC_BASE_URL && `${process.env.NEXT_PUBLIC_BASE_URL}/`) ||
-      (host ? `https://${host}/` : "https://daesu-clean-2.vercel.app/`);
+      (host ? `https://${host}/` : "https://daesu-clean-2.vercel.app/");
 
     // 1) 주소 → 코드(JUSO)
     const jusoKey = pickJusoKey(host);
@@ -63,8 +61,8 @@ export async function GET(req: NextRequest) {
       cache: "no-store",
       headers: {
         Accept: "application/json",
-        Referer: referer,                       // ★ 레퍼러 명시
-        "User-Agent": "daesu-clean/1.0 (+vercel)",
+        Referer: referer,
+        Origin: referer,
       },
     });
     if (!jusoRes.ok) {
@@ -103,14 +101,7 @@ export async function GET(req: NextRequest) {
       `http://openapi.seoul.go.kr:8088/${encodeURIComponent(seoulKey)}` +
       `/json/BuildingRegisterGeneral/1/1/${encodeURIComponent(admCd)}/${encodeURIComponent(bon)}/${encodeURIComponent(bu)}`;
 
-    const seoulRes = await fetch(url, {
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-        Referer: referer,                       // (보수적으로 동봉)
-        "User-Agent": "daesu-clean/1.0 (+vercel)",
-      },
-    });
+    const seoulRes = await fetch(url, { cache: "no-store", headers: { Accept: "application/json" } });
     const seoulText = await seoulRes.text();
 
     let item: any = null;

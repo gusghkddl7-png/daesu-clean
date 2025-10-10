@@ -4,18 +4,35 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
-export const preferredRegion = "icn1";
+export const preferredRegion = "icn1"; // 서울 리전
 
 const DEFAULT_PER_PAGE = 10;
 
 /** 호스트에 맞는 키 선택 */
 function pickJusoKey(host: string | null): string | undefined {
   const h = (host || "").toLowerCase();
-  if (h.includes("vercel.app")) return process.env.JUSO_KEY_VERCEL || process.env.JUSO_KEY;
-  if (h.includes("127.0.0.1"))
-    return process.env.JUSO_KEY_LOOPBACK || process.env.JUSO_KEY_LOCALHOST || process.env.JUSO_KEY;
-  if (h.includes("localhost"))
-    return process.env.JUSO_KEY_LOCALHOST || process.env.JUSO_KEY_LOOPBACK || process.env.JUSO_KEY;
+
+  // 배포(Vercel)
+  if (h.includes("vercel.app")) {
+    return process.env.JUSO_KEY_VERCEL || process.env.JUSO_KEY;
+  }
+  // 로컬(루프백)
+  if (h.includes("127.0.0.1")) {
+    return (
+      process.env.JUSO_KEY_LOOPBACK ||
+      process.env.JUSO_KEY_LOCALHOST ||
+      process.env.JUSO_KEY
+    );
+  }
+  // 로컬(localhost)
+  if (h.includes("localhost")) {
+    return (
+      process.env.JUSO_KEY_LOCALHOST ||
+      process.env.JUSO_KEY_LOOPBACK ||
+      process.env.JUSO_KEY
+    );
+  }
+  // 기타 기본
   return process.env.JUSO_KEY;
 }
 
@@ -46,8 +63,8 @@ async function callJuso(confmKey: string, keyword: string, page: number, size: n
     cache: "no-store",
     headers: {
       Accept: "application/json",
-      Referer: referer,                       // ★ 레퍼러 고정
-      "User-Agent": "daesu-clean/1.0 (+vercel)",
+      Referer: referer,
+      Origin: referer,
     },
   });
   if (!r.ok) throw new Error(`Juso HTTP ${r.status}`);
@@ -62,16 +79,20 @@ export async function GET(req: Request) {
     const size = Math.max(1, Number(searchParams.get("size") || DEFAULT_PER_PAGE));
     const debug = searchParams.has("debug");
 
-    if (!keywordRaw) return json({ ok: false, error: "q 또는 keyword(검색어)가 필요합니다." }, { status: 400 });
+    if (!keywordRaw) {
+      return json({ ok: false, error: "q 또는 keyword(검색어)가 필요합니다." }, { status: 400 });
+    }
 
     const host = req.headers.get("host");
     const confmKey = pickJusoKey(host);
-    if (!confmKey) return json({ ok: false, error: "JUSO_KEY가 설정되어 있지 않습니다." }, { status: 500 });
+    if (!confmKey) {
+      return json({ ok: false, error: "JUSO_KEY가 설정되어 있지 않습니다." }, { status: 500 });
+    }
 
     // Referer: 등록한 서비스 URL을 사용 (없으면 호스트 기반)
     const referer =
       (process.env.NEXT_PUBLIC_BASE_URL && `${process.env.NEXT_PUBLIC_BASE_URL}/`) ||
-      (host ? `https://${host}/` : "https://daesu-clean-2.vercel.app/`);
+      (host ? `https://${host}/` : "https://daesu-clean-2.vercel.app/");
 
     const tried: string[] = [];
     const { base, noHyphen } = normalizeKeyword(keywordRaw);
@@ -114,8 +135,6 @@ export async function GET(req: Request) {
       rnMgtSn: x.rnMgtSn,
       bdMgtSn: x.bdMgtSn,
       detBdNmList: x.detBdNmList,
-      lnbrMnnm: x.lnbrMnnm,
-      lnbrSlno: x.lnbrSlno,
     }));
 
     const out: any = { ok: true, total, page, size, items, tried };
