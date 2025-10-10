@@ -482,7 +482,7 @@ export default function ListingsPage() {
           </button>
         ))}
 
-        {/* ✅ 새로 추가: 주소및호실상태 이동 버튼 */}
+        {/* 주소및호실상태 이동 버튼 */}
         <button
           onClick={() => router.push("/listings/units")}
           title="주소 및 호실 상태 화면으로 이동"
@@ -634,7 +634,7 @@ export default function ListingsPage() {
                     onClick={() => clickable && routerToEdit(r)}
                     className={
                       "border-t " +
-                      (r.vacant && !isDone ? "bg-pink-50 " : "") +
+                      // 🔥 공실 자동 배경 제거 (기존 bg-pink-50 삭제)
                       (clickable ? "cursor-pointer hover:bg-blue-50 " : "opacity-90 ")
                     }
                     title={clickable ? "클릭하여 수정하기" : undefined}

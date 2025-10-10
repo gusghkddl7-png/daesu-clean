@@ -1,0 +1,22 @@
+﻿[
+  {
+    "id": "68df2691be28f66fa7c845aa",
+    "buildingId": "68df2691be28f66fa7c845a9",
+    "floor": 5,
+    "ho": "502",
+    "rentMemo": "보2000/월70/관5",
+    "tenantMemo": "홍길동 010-1111-2222",
+    "expireAt": "2026-12-31",
+    "createdAt": "2025-10-03T01:25:58.398Z"
+  },
+  {
+    "id": "68df2691be28f66fa7c845ab",
+    "buildingId": "68df2691be28f66fa7c845a9",
+    "floor": 12,
+    "ho": "1201",
+    "rentMemo": "보3000/월90/관7",
+    "tenantMemo": "김철수 010-3333-4444",
+    "expireAt": "2027-05-10",
+    "createdAt": "2025-10-03T01:25:58.523Z"
+  ]
+]

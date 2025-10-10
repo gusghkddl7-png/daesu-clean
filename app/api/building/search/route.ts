@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const runtime = "nodejs";
+export const preferredRegion = "icn1";
 
 function noCache(init?: ResponseInit) {
   const h = new Headers(init?.headers);
@@ -13,12 +15,12 @@ function noCache(init?: ResponseInit) {
   return h;
 }
 
-// 호스트별 Juso 키 선택(.env.local에 넣어둔 3개 키 사용)
+// 호스트별 Juso 키 선택
 function pickJusoKey(host: string | null) {
   const h = (host || "").toLowerCase();
-  if (h.includes("vercel.app"))   return process.env.JUSO_KEY_VERCEL || process.env.JUSO_KEY;
-  if (h.includes("127.0.0.1"))    return process.env.JUSO_KEY_LOOPBACK || process.env.JUSO_KEY_LOCAL || process.env.JUSO_KEY;
-  if (h.includes("localhost"))    return process.env.JUSO_KEY_LOCAL || process.env.JUSO_KEY_LOOPBACK || process.env.JUSO_KEY;
+  if (h.includes("vercel.app")) return process.env.JUSO_KEY_VERCEL || process.env.JUSO_KEY;
+  if (h.includes("127.0.0.1")) return process.env.JUSO_KEY_LOOPBACK || process.env.JUSO_KEY_LOCAL || process.env.JUSO_KEY;
+  if (h.includes("localhost")) return process.env.JUSO_KEY_LOCAL || process.env.JUSO_KEY_LOOPBACK || process.env.JUSO_KEY;
   return process.env.JUSO_KEY;
 }
 
@@ -38,8 +40,13 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    const host = req.headers.get("host");
+    const referer =
+      (process.env.NEXT_PUBLIC_BASE_URL && `${process.env.NEXT_PUBLIC_BASE_URL}/`) ||
+      (host ? `https://${host}/` : "https://daesu-clean-2.vercel.app/`);
+
     // 1) 주소 → 코드(JUSO)
-    const jusoKey = pickJusoKey(req.headers.get("host"));
+    const jusoKey = pickJusoKey(host);
     if (!jusoKey) {
       return new NextResponse(JSON.stringify({ ok: false, error: "JUSO_KEY 미설정" }), {
         status: 500, headers: noCache(),
@@ -53,7 +60,12 @@ export async function GET(req: NextRequest) {
       resultType: "json",
     });
     const jusoRes = await fetch(`https://www.juso.go.kr/addrlink/addrLinkApi.do?${jusoQS}`, {
-      cache: "no-store", headers: { Accept: "application/json" },
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        Referer: referer,                       // ★ 레퍼러 명시
+        "User-Agent": "daesu-clean/1.0 (+vercel)",
+      },
     });
     if (!jusoRes.ok) {
       return new NextResponse(JSON.stringify({ ok: false, error: `Juso ${jusoRes.status}` }), {
@@ -79,7 +91,7 @@ export async function GET(req: NextRequest) {
       admCd, bon, bu,
     };
 
-    // 2) 서울 건축물대장 조회(일반대장 예시)
+    // 2) 서울 건축물대장 조회(일반대장)
     const seoulKey = process.env.SEOUL_BUILDING_KEY;
     if (!seoulKey) {
       return new NextResponse(JSON.stringify({ ok: false, error: "SEOUL_BUILDING_KEY 미설정" }), {
@@ -91,7 +103,14 @@ export async function GET(req: NextRequest) {
       `http://openapi.seoul.go.kr:8088/${encodeURIComponent(seoulKey)}` +
       `/json/BuildingRegisterGeneral/1/1/${encodeURIComponent(admCd)}/${encodeURIComponent(bon)}/${encodeURIComponent(bu)}`;
 
-    const seoulRes = await fetch(url, { cache: "no-store", headers: { Accept: "application/json" } });
+    const seoulRes = await fetch(url, {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        Referer: referer,                       // (보수적으로 동봉)
+        "User-Agent": "daesu-clean/1.0 (+vercel)",
+      },
+    });
     const seoulText = await seoulRes.text();
 
     let item: any = null;
@@ -114,7 +133,7 @@ export async function GET(req: NextRequest) {
       query: { q, admCd, bon, bu },
       address: addressSummary,
       seoulMsg,
-      item, // null이면 “대장 없음/불일치”로 처리
+      item,
     }), { status: 200, headers: noCache() });
 
   } catch (e: any) {
