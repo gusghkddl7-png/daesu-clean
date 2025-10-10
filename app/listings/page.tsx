@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { withBase, getClientBaseUrl } from "../lib/base"; // ← 상대경로로 변경
 
 /** ===== 타입 ===== */
 type Deal = "월세" | "전세" | "매매";
@@ -180,7 +181,8 @@ export default function ListingsPage() {
     let alive = true;
     (async () => {
       try {
-        const res = await fetch("/api/staff?approved=1", { cache: "no-store" });
+        const url = withBase("/api/staff?approved=1", getClientBaseUrl()); // ← base 유틸 적용
+        const res = await fetch(url, { cache: "no-store" });
         const list = (await res.json()) as string[];
         const only3 = (Array.isArray(list) ? list : []).filter(
           (s) => typeof s === "string" && s.trim().length === 3
@@ -199,8 +201,7 @@ export default function ListingsPage() {
       setLoading(true);
       setLoadErr("");
       try {
-        const base = process.env.NEXT_PUBLIC_BASE_URL || "";
-        const url = `${base}/api/listings`.replace(/\/{2,}/g, "/").replace(":/", "://");
+        const url = withBase("/api/listings", getClientBaseUrl()); // ← base 유틸 적용
         const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const arr = (await res.json()) as Listing[];
@@ -623,7 +624,6 @@ export default function ListingsPage() {
                 const clickable = !!(r as any)._id;
                 const isDone = !!r.completed;
 
-                // 완료건은 라벨색을 무시하고 어둡게
                 const baseStyle = isDone
                   ? { background: "#0b0b0b", color: "#cfcfcf" }
                   : (r.labelColor ? { background: r.labelColor } : undefined);
@@ -634,7 +634,6 @@ export default function ListingsPage() {
                     onClick={() => clickable && routerToEdit(r)}
                     className={
                       "border-t " +
-                      // 🔥 공실 자동 배경 제거 (기존 bg-pink-50 삭제)
                       (clickable ? "cursor-pointer hover:bg-blue-50 " : "opacity-90 ")
                     }
                     title={clickable ? "클릭하여 수정하기" : undefined}
