@@ -151,9 +151,17 @@ function toMan(s: string) {
   if (s.endsWith("백")) return parseFloat(s.replace("백",""))*100;
   return Number(s); // 월세 버튼 등
 }
-function bucketRange(val: number): [number, number] {
+
+/** ✅ 버튼 값 → [min,max] (그 값 자체를 가리키게) */
+function bucketRange(
+  val: number,
+  _steps: number[] = priceSteps
+): [number, number] {
   return [val, val];
-}function isInRange(v:number, min?:number, max?:number) {
+}
+
+/** 포함 여부(양 끝 포함) */
+function isInRange(v:number, min?:number, max?:number) {
   if (min==null && max==null) return false;
   if (min==null) return v<= (max as number);
   if (max==null) return v>= (min as number);
@@ -430,7 +438,7 @@ export default function ListingsMapPage() {
         const mk = L.marker([lat, lng], { icon, title: k }).addTo(osmMap.current);
         mk.on("click", () => {
           setSelectedKey(k);
-          setActive(v.items[0] ?? null);   // ✅ 바로 상단(첫 번째) 매물 상세 열기
+          setActive(v.items[0] ?? null);   // ✅ 첫 매물 상세 바로 열기
         });
         markersRef.current.push(mk);
         boundsOSM?.extend([lat, lng]);
@@ -440,7 +448,7 @@ export default function ListingsMapPage() {
         el.innerHTML = html;
         (el.firstElementChild as HTMLElement | null)?.addEventListener("click", () => {
           setSelectedKey(k);
-          setActive(v.items[0] ?? null);   // ✅ 바로 상단(첫 번째) 매물 상세 열기
+          setActive(v.items[0] ?? null);   // ✅ 첫 매물 상세 바로 열기
         });
         const mk = new KM.CustomOverlay({
           position: pos,
@@ -456,7 +464,7 @@ export default function ListingsMapPage() {
       made++;
     }
 
-    // 화면 맞춤 (마커가 있을 때만 수행 → 매물 없어도 지도는 항상 보이도록)
+    // 화면 맞춤 (마커가 있을 때만 → 매물 없어도 지도는 항상 보임)
     if (fit && made > 0) {
       if (isOSM && osmMap.current && boundsOSM) {
         try {
@@ -632,9 +640,10 @@ export default function ListingsMapPage() {
       setPriceAnchor(v);
     } else {
       // 두 번째 클릭 → 구간 완성(작은쪽~큰쪽)
-      const [smin] = bucketRange(priceAnchor, priceSteps);
-      const range = [Math.min(smin, bmin), Math.max(bmax, bucketRange(priceAnchor, priceSteps)[1])] as [number,number];
-      setFilters(f => ({...f, priceMin: range[0], priceMax: range[1]}));
+      const [smin, smax] = bucketRange(priceAnchor, priceSteps);
+      const rangeMin = Math.min(smin, bmin);
+      const rangeMax = Math.max(smax, bmax);
+      setFilters(f => ({...f, priceMin: rangeMin, priceMax: rangeMax}));
       setPriceAnchor(null);
     }
   }
@@ -650,9 +659,10 @@ export default function ListingsMapPage() {
       setFilters(f => ({...f, rentMin: bmin, rentMax: bmax}));
       setRentAnchor(v);
     } else {
-      const [smin] = bucketRange(rentAnchor, rentSteps);
-      const range = [Math.min(smin, bmin), Math.max(bmax, bucketRange(rentAnchor, rentSteps)[1])] as [number,number];
-      setFilters(f => ({...f, rentMin: range[0], rentMax: range[1]}));
+      const [smin, smax] = bucketRange(rentAnchor, rentSteps);
+      const rangeMin = Math.min(smin, bmin);
+      const rangeMax = Math.max(smax, bmax);
+      setFilters(f => ({...f, rentMin: rangeMin, rentMax: rangeMax}));
       setRentAnchor(null);
     }
   }
@@ -673,8 +683,8 @@ export default function ListingsMapPage() {
       return;
     }
     const i = areaStepsP.indexOf(p);
-    const lowP = (i>0? areaStepsP[i-1] : 0) + 0.0001; // 0초과로
-    const highP = p;
+    const lowP = p;           // ✅ 하한을 바로 '해당 값'으로
+    const highP = p;          // 단일 클릭은 동일 값
     const bmin = toM2(lowP)!, bmax = toM2(highP)!;
     if (!areaAnchorP && filters.areaMinM2===bmin && filters.areaMaxM2===bmax) {
       setFilters(f=>({...f, areaMinM2: undefined, areaMaxM2: undefined}));
@@ -685,8 +695,7 @@ export default function ListingsMapPage() {
       setFilters(f=>({...f, areaMinM2: bmin, areaMaxM2: bmax}));
       setAreaAnchorP(p);
     } else {
-      const si = areaStepsP.indexOf(areaAnchorP);
-      const slowP = (si>0? areaStepsP[si-1] : 0) + 0.0001;
+      const slowP = areaAnchorP;
       const shighP = areaAnchorP;
       const rmin = Math.min(slowP, lowP), rmax = Math.max(shighP, highP);
       setFilters(f=>({...f, areaMinM2: toM2(rmin)!, areaMaxM2: toM2(rmax)!}));
@@ -712,14 +721,11 @@ export default function ListingsMapPage() {
   function areaBtnClass(lbl:string) {
     if (lbl.endsWith("~")) {
       const p = parseFloat(lbl);
-      const selected = (filters.areaMinM2!=null && filters.areaMaxM2==null && Math.abs(filters.areaMinM2 - toM2(p)!)<0.001);
+      const selected = (filters.areaMinM2!=null && filters.areaMaxM2==null && Math.abs((filters.areaMinM2 ?? 0) - (toM2(p) ?? 0))<0.001);
       return "px-2 py-1 border rounded " + (selected ? "bg-blue-600 text-white" : "");
     }
     const p = parseFloat(lbl);
-    const i = areaStepsP.indexOf(p);
-    const lowP = (i>0? areaStepsP[i-1] : 0) + 0.0001;
-    const highP = p;
-    const bmin = toM2(lowP)!, bmax = toM2(highP)!;
+    const bmin = toM2(p)!, bmax = toM2(p)!;
     const selected = (filters.areaMinM2!=null && filters.areaMaxM2!=null &&
                       !(bmax < (filters.areaMinM2||-Infinity) || bmin > (filters.areaMaxM2||Infinity)));
     const anchor = areaAnchorP===p;
@@ -1134,7 +1140,7 @@ export default function ListingsMapPage() {
                   전체 초기화
                 </button>
                 <div className="text-[11px] text-gray-500 ml-auto">
-                  버튼을 두 번 눌러 구간 지정 / 같은 버튼 두 번은 해제
+                  버튼 두 번으로 시작/끝 지정 · 같은 버튼 두 번은 해제
                 </div>
               </div>
             </div>
