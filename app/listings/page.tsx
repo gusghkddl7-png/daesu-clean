@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { withBase, getClientBaseUrl } from "../lib/base"; // ← 상대경로로 변경
+import { withBase, getClientBaseUrl } from "../lib/base";
 
 /** ===== 타입 ===== */
 type Deal = "월세" | "전세" | "매매";
@@ -38,6 +38,8 @@ type Listing = {
   loft?: boolean;
   illegal?: boolean;
   photos?: { name: string; dataUrl: string }[];
+  lat?: number;
+  lng?: number;
 };
 
 /** ===== 유틸 ===== */
@@ -64,7 +66,7 @@ function useDebounced<T>(val: T, ms = 200) {
   return v;
 }
 
-// 비고: 1줄 + 1줄(작게)
+// 비고 2줄 표시
 function TwoLineCell({
   text,
   firstLen = 30,
@@ -83,9 +85,7 @@ function TwoLineCell({
   const over = rest.length > secondLen;
   return (
     <div className="leading-snug">
-      <div className="whitespace-nowrap overflow-hidden text-ellipsis">
-        {first}
-      </div>
+      <div className="whitespace-nowrap overflow-hidden text-ellipsis">{first}</div>
       {second && (
         <div className="text-[11px] text-gray-600 whitespace-nowrap overflow-hidden text-ellipsis">
           {second}
@@ -105,9 +105,7 @@ function TenantCell({ info }: { info?: string }) {
   const label = date ? s.replace(m![1], "").trim() || "이사가능일" : s;
   return (
     <div className="leading-snug">
-      <div className="whitespace-nowrap overflow-hidden text-ellipsis">
-        {label}
-      </div>
+      <div className="whitespace-nowrap overflow-hidden text-ellipsis">{label}</div>
       {date && <div className="text-[11px] text-gray-600">{date}</div>}
     </div>
   );
@@ -124,7 +122,7 @@ function fmtPhone(raw?: string) {
   return raw || "-";
 }
 
-/** ===== 탭/분류 ===== */
+/** ===== 분류 ===== */
 const TABS = [
   "월세매물장",
   "전세매물장",
@@ -146,20 +144,14 @@ type BtCat = (typeof BT_CATS)[number]["label"];
 const catOf = (bt?: string): BtCat | "기타" => {
   const s = (bt ?? "").toLowerCase();
   return (
-    BT_CATS.find((c) =>
-      c.match.some((m) => s.includes(m.toLowerCase()))
-    )?.label ?? "기타"
+    BT_CATS.find((c) => c.match.some((m) => s.includes(m.toLowerCase())))?.label ??
+    "기타"
   );
 };
 
-// 메모/텍스트에서 LH/SH, HUG/HF 유추
+// 메모/텍스트에서 LH/SH, HUG/HF 추론
 function guessToken(listing: Listing, token: "LH" | "SH" | "HUG" | "HF") {
-  const hay = [
-    listing.memo,
-    listing.tenantInfo,
-    listing.code,
-    listing.buildingType,
-  ]
+  const hay = [listing.memo, listing.tenantInfo, listing.code, listing.buildingType]
     .filter(Boolean)
     .join(" ")
     .toUpperCase();
@@ -175,13 +167,13 @@ export default function ListingsPage() {
   const [loadErr, setLoadErr] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
 
-  // 승인된 담당자 목록 (3글자만)
+  // 승인된 담당자(3글자) 목록
   const [agents, setAgents] = useState<string[]>([]);
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const url = withBase("/api/staff?approved=1", getClientBaseUrl()); // ← base 유틸 적용
+        const url = withBase("/api/staff?approved=1", getClientBaseUrl());
         const res = await fetch(url, { cache: "no-store" });
         const list = (await res.json()) as string[];
         const only3 = (Array.isArray(list) ? list : []).filter(
@@ -192,16 +184,19 @@ export default function ListingsPage() {
         if (alive) setAgents([]);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
+  // 목록 로드
   useEffect(() => {
     let alive = true;
     (async () => {
       setLoading(true);
       setLoadErr("");
       try {
-        const url = withBase("/api/listings", getClientBaseUrl()); // ← base 유틸 적용
+        const url = withBase("/api/listings", getClientBaseUrl());
         const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const arr = (await res.json()) as Listing[];
@@ -220,18 +215,20 @@ export default function ListingsPage() {
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
   /** ===== 필터 상태 & URL 동기화 ===== */
   const [tab, setTab] = useState<Tab>((getQS(sp, "tab") as Tab) || "");
   const [q, setQ] = useState(getQS(sp, "q"));
-  const [lhsh, setLhsh] = useState(getQS(sp, "lhsh")); // LH/SH
-  const [guar, setGuar] = useState(getQS(sp, "guar")); // HUG/HF
+  const [lhsh, setLhsh] = useState(getQS(sp, "lhsh"));
+  const [guar, setGuar] = useState(getQS(sp, "guar"));
   const [onlyVacant, setOnlyVacant] = useState(getQS(sp, "vacant") === "1");
-  const [hideCompleted, setHideCompleted] = useState(getQS(sp, "hideDone") === "1");
-
-  // 새로 추가: 담당자 필터
+  const [hideCompleted, setHideCompleted] = useState(
+    getQS(sp, "hideDone") === "1"
+  );
   const [agentSel, setAgentSel] = useState(getQS(sp, "agent"));
 
   const [advOpen, setAdvOpen] = useState(false);
@@ -316,7 +313,7 @@ export default function ListingsPage() {
       );
     }
 
-    // LH/SH, HUG/HF 필터 (텍스트 기반 추론)
+    // 텍스트 기반 추론 필터
     if (lhsh === "LH") r = r.filter((x) => guessToken(x, "LH"));
     if (lhsh === "SH") r = r.filter((x) => guessToken(x, "SH"));
     if (guar === "HUG") r = r.filter((x) => guessToken(x, "HUG"));
@@ -358,7 +355,8 @@ export default function ListingsPage() {
       const passElev = !elevYes || x.elevator === "Y";
       const passPark = !parkYes || x.parking === "가능";
       const passPets = !petsYes || x.pets === "가능";
-      const passBT = btSel.length === 0 || btSel.includes(catOf(x.buildingType));
+      const passBT =
+        btSel.length === 0 || btSel.includes(catOf(x.buildingType));
       return (
         passDep &&
         passRent &&
@@ -463,13 +461,11 @@ export default function ListingsPage() {
       <div className="flex flex-wrap items-center justify-start gap-2 mb-3">
         <button
           onClick={() => setAdvOpen(true)}
-          className={
-            "px-3 py-1.5 rounded-full border " +
-            (advOpen ? "bg-black text-white" : "bg-white hover:bg-gray-50")
-          }
+          className="px-3 py-1.5 rounded-full border bg-white hover:bg-gray-50"
         >
           상세검색
         </button>
+
         {TABS.map((name) => (
           <button
             key={name}
@@ -483,7 +479,7 @@ export default function ListingsPage() {
           </button>
         ))}
 
-        {/* 주소및호실상태 이동 버튼 */}
+        {/* 주소및호실상태 이동 */}
         <button
           onClick={() => router.push("/listings/units")}
           title="주소 및 호실 상태 화면으로 이동"
@@ -491,14 +487,25 @@ export default function ListingsPage() {
         >
           주소및호실상태
         </button>
+
+        {/* ✅ 전용 지도 페이지로 이동 */}
+        <button
+          onClick={() => router.push("/listings/map")}
+          title="우리 매물만 지도로 보기"
+          className="px-3 py-1.5 rounded-full border bg-emerald-600 text-white hover:opacity-90"
+        >
+          매물지도
+        </button>
       </div>
 
-      {/* 검색/필터 */}
+      {/* 상단 필터 */}
       <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
         <div className="flex flex-wrap items-center gap-2">
           <div className="text-sm text-gray-700 mr-1">
             표시 <b>{rows.length}</b>건 / 전체 <b>{items.length}</b>건
-            {loading ? <span className="ml-2 text-gray-500">(로딩중…)</span> : null}
+            {loading ? (
+              <span className="ml-2 text-gray-500">(로딩중…)</span>
+            ) : null}
           </div>
           <input
             value={q}
@@ -506,16 +513,20 @@ export default function ListingsPage() {
             placeholder="주소·메모·코드·유형 검색"
             className="border rounded-lg px-3 py-1.5 w-64"
           />
-          {/* 담당자 필터 */}
+          {/* 담당자 */}
           <select
             value={agentSel}
             onChange={(e) => setAgentSel(e.target.value)}
             className="border rounded-lg px-2 py-1.5"
             title="담당자 필터(설정에서 승인된 3글자만 표시)"
           >
-            <option value="">{agents.length ? "담당자(전체)" : "담당자(없음)"}</option>
+            <option value="">
+              {agents.length ? "담당자(전체)" : "담당자(없음)"}
+            </option>
             {agents.map((a) => (
-              <option key={a} value={a}>{a}</option>
+              <option key={a} value={a}>
+                {a}
+              </option>
             ))}
           </select>
 
@@ -626,7 +637,9 @@ export default function ListingsPage() {
 
                 const baseStyle = isDone
                   ? { background: "#0b0b0b", color: "#cfcfcf" }
-                  : (r.labelColor ? { background: r.labelColor } : undefined);
+                  : r.labelColor
+                  ? { background: r.labelColor }
+                  : undefined;
 
                 return (
                   <tr
@@ -634,7 +647,9 @@ export default function ListingsPage() {
                     onClick={() => clickable && routerToEdit(r)}
                     className={
                       "border-t " +
-                      (clickable ? "cursor-pointer hover:bg-blue-50 " : "opacity-90 ")
+                      (clickable
+                        ? "cursor-pointer hover:bg-blue-50 "
+                        : "opacity-90 ")
                     }
                     title={clickable ? "클릭하여 수정하기" : undefined}
                     style={baseStyle}
@@ -676,7 +691,7 @@ export default function ListingsPage() {
                       )}
                     </td>
                     <td className="px-3 py-2 truncate">
-                      {(r.rooms ?? 0)} / {(r.baths ?? 0)}
+                      {r.rooms ?? 0} / {r.baths ?? 0}
                     </td>
                     <td className="px-3 py-2 truncate">{r.elevator ?? "-"}</td>
                     <td className="px-3 py-2 truncate">{r.parking ?? "-"}</td>
@@ -711,9 +726,7 @@ export default function ListingsPage() {
                     colSpan={17}
                     className="px-3 py-10 text-center text-gray-500"
                   >
-                    {loading
-                      ? "불러오는 중…"
-                      : "조건에 맞는 매물이 없습니다."}
+                    {loading ? "불러오는 중…" : "조건에 맞는 매물이 없습니다."}
                   </td>
                 </tr>
               )}
@@ -836,7 +849,9 @@ export default function ListingsPage() {
                         }
                         className={
                           "px-3 py-1.5 rounded-full border text-sm " +
-                          (active ? "bg-black text-white" : "bg-white hover:bg-gray-50")
+                          (active
+                            ? "bg-black text-white"
+                            : "bg-white hover:bg-gray-50")
                         }
                       >
                         {c.label}
@@ -963,11 +978,17 @@ export default function ListingsPage() {
             </div>
 
             <div className="px-5 py-3 border-t flex items-center justify-between">
-              <button className="px-3 py-1.5 border rounded-lg" onClick={resetAdvanced}>
+              <button
+                className="px-3 py-1.5 border rounded-lg"
+                onClick={resetAdvanced}
+              >
                 초기화
               </button>
               <div className="flex gap-2">
-                <button className="px-3 py-1.5 border rounded-lg" onClick={() => setAdvOpen(false)}>
+                <button
+                  className="px-3 py-1.5 border rounded-lg"
+                  onClick={() => setAdvOpen(false)}
+                >
                   취소
                 </button>
                 <button

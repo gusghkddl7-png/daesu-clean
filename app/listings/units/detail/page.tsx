@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { withBase, getClientBaseUrl } from "../../../lib/base";
 
 /**
  * 상세 페이지는 /listings/units/detail?road=서울 강동구 천호대로 123 형식으로 접근.
@@ -78,9 +79,10 @@ export default function DetailPage() {
           setLoading(false);
           return;
         }
-        const base = process.env.NEXT_PUBLIC_BASE_URL || "";
-        const url = `${base}/api/seoul/building`.replace(/\/{2,}/g, "/").replace(":/", "://");
-        const r = await fetch(`${url}?addr=${encodeURIComponent(road)}`, { cache: "no-store" });
+        const url = withBase(`/api/seoul/building`, getClientBaseUrl());
+        const r = await fetch(`${url}?addr=${encodeURIComponent(road)}`, {
+          cache: "no-store",
+        });
         const data: ApiResp = await r.json();
 
         if (!data.ok) {
@@ -129,7 +131,6 @@ export default function DetailPage() {
           </button>
           <button
             className="h-9 px-3 rounded-lg border bg-white hover:bg-gray-50"
-            // 지도 검색은 도로명주소만 사용
             onClick={() => window.open(`https://map.kakao.com/?q=${encodeURIComponent(road)}`, "_blank")}
           >
             지도열기

@@ -62,7 +62,6 @@ const BT_CATS = [
 type BtCat = (typeof BT_CATS)[number];
 
 type Form = {
-  /* ★ 추가: 담당자(3글자, 승인된 사람만 선택 가능) */
   agent: string;
 
   dealType: Deal | "";
@@ -111,7 +110,6 @@ type Form = {
 
 const initForm: Form = {
   agent: "",
-
   dealType: "",
   buildingType: "",
   addressJibeon: "",
@@ -256,7 +254,7 @@ const ToggleBtn = ({
   </button>
 );
 
-/* ========= 사진 뷰어(모달 + 좌/우 내비) ========= */
+/* ========= 사진 뷰어 ========= */
 function PhotoViewer({
   photos,
   index,
@@ -272,7 +270,6 @@ function PhotoViewer({
 }) {
   const p = photos[index];
 
-  // 키보드 단축키
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -295,7 +292,6 @@ function PhotoViewer({
         style={{ width: "80vw", maxWidth: 1400 }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 헤더 */}
         <div className="flex items-center justify-between mb-2">
           <div className="font-semibold text-sm truncate pr-2">
             {p.name} <span className="text-gray-400">({index + 1}/{photos.length})</span>
@@ -308,9 +304,7 @@ function PhotoViewer({
           </button>
         </div>
 
-        {/* 이미지 영역 */}
         <div className="relative flex items-center justify-center">
-          {/* 좌/우 버튼 */}
           {photos.length > 1 && (
             <>
               <button
@@ -337,7 +331,6 @@ function PhotoViewer({
           />
         </div>
 
-        {/* 하단 */}
         <div className="mt-3 flex items-center justify-between">
           <a
             className="inline-flex items-center gap-2 text-sm underline"
@@ -470,13 +463,19 @@ export default function EditListingPage() {
   // 승인된 담당자(3글자) 목록
   const [staffList, setStaffList] = useState<string[]>([]);
 
-  // 한 번만 선언
+  // 폼 ref
   const formRef = useRef<HTMLFormElement>(null);
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) =>
     setF((s) => ({ ...s, [k]: v }));
 
-  // 승인된 담당자 불러오기 (3글자만 사용)
+  // ★ 코드 수동편집 상태(수정 화면은 항상 수동 문자열을 들고 있음)
+  const [codeEdit, setCodeEdit] = useState(false);
+  const [codeInput, setCodeInput] = useState("");
+  const [manualCode, setManualCode] = useState<string>(""); // 현재 표시/저장용
+  const currentCode = manualCode;
+
+  // 승인된 담당자 불러오기
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -496,6 +495,7 @@ export default function EditListingPage() {
     return () => { alive = false; };
   }, []);
 
+  // 데이터 로드
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -514,7 +514,7 @@ export default function EditListingPage() {
         const m = String(x?.tenantInfo || "").match(/이사가능일\s+(\d{4}-\d{2}-\d{2})/);
 
         const next: Form = {
-          agent: typeof x?.agent === "string" ? x.agent : "",           // ★ 담당자
+          agent: typeof x?.agent === "string" ? x.agent : "",
           dealType: (x?.dealType ?? "") as any,
           buildingType: (x?.buildingType ?? "") as any,
           addressJibeon: x?.address ?? "",
@@ -555,6 +555,9 @@ export default function EditListingPage() {
         if (alive) {
           setOrig(x);
           setF(next);
+          setManualCode(String(x?.code || ""));   // ★ 현재 코드 주입
+          setCodeEdit(false);
+          setCodeInput("");
         }
       } catch (e) {
         console.error(e);
@@ -576,7 +579,7 @@ export default function EditListingPage() {
 
   const errors = useMemo(() => {
     const e: Record<string, string> = {};
-    if (!f.agent || !staffList.includes(f.agent)) e.agent = "담당자를 선택하세요."; // ★
+    if (!f.agent || !staffList.includes(f.agent)) e.agent = "담당자를 선택하세요.";
     if (!f.dealType) e.dealType = "거래유형을 선택하세요.";
     if (!f.buildingType) e.buildingType = "건물유형을 선택하세요.";
     if (f.addressJibeon && !/동\s*\d+\-\d+/.test(f.addressJibeon)) {
@@ -628,10 +631,17 @@ export default function EditListingPage() {
       alert("필수/숫자 항목을 확인해주세요.");
       return;
     }
+    const finalCode = (currentCode || "").trim().toUpperCase();
+    if (!/^[A-Z]+-\d{4}$/.test(finalCode)) {
+      alert("코드 형식은 예) BO-0123");
+      return;
+    }
+
     setSaving(true);
     try {
       const payload = {
-        agent: f.agent || undefined, // ★ 담당자 저장
+        code: finalCode, // ★ 수동/현재 코드 확정 저장
+        agent: f.agent || undefined,
 
         dealType: f.dealType || undefined,
         buildingType: f.buildingType || undefined,
@@ -661,7 +671,6 @@ export default function EditListingPage() {
         memo: f.memo || "",
         vacant: !!f.vacant,
         completed: !!f.completed,
-        // 새 필드들
         labelColor: f.labelColor || "",
         loft: !!f.loft,
         illegal: !!f.illegal,
@@ -728,17 +737,62 @@ export default function EditListingPage() {
         <Section
           title="기본 / 거래"
           extra={
-            <div tabIndex={-1} data-skip-tab>
+            <div tabIndex={-1} data-skip-tab className="flex items-center gap-2">
               <CodeNumberBox
                 dealType={f.dealType as any}
                 buildingType={f.buildingType as any}
                 variant="compact"
+                overrideCode={currentCode}
               />
+
+              {!codeEdit ? (
+                <button
+                  type="button"
+                  className="h-8 px-2 border rounded text-xs"
+                  onClick={() => {
+                    setCodeInput(currentCode || "");
+                    setCodeEdit(true);
+                  }}
+                >
+                  코드 수정
+                </button>
+              ) : (
+                <>
+                  <input
+                    value={codeInput}
+                    onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+                    placeholder="예: BO-0123"
+                    className="h-8 px-2 border rounded text-sm w-[120px]"
+                  />
+                  <button
+                    type="button"
+                    className="h-8 px-2 border rounded text-xs bg-black text-white"
+                    onClick={() => {
+                      const v = codeInput.trim().toUpperCase();
+                      if (!/^[A-Z]+-\d{4}$/.test(v)) {
+                        alert("형식: 영문-4자리 (예: BO-0123)");
+                        return;
+                      }
+                      setManualCode(v); // ★ 현재 코드 갱신
+                      setCodeEdit(false);
+                    }}
+                  >
+                    적용
+                  </button>
+                  <button
+                    type="button"
+                    className="h-8 px-2 border rounded text-xs"
+                    onClick={() => setCodeEdit(false)}
+                  >
+                    취소
+                  </button>
+                </>
+              )}
             </div>
           }
         >
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {/* ★ 담당자 */}
+            {/* 담당자 */}
             <div>
               <L>담당자 *</L>
               <select
@@ -877,7 +931,6 @@ export default function EditListingPage() {
                 />
               </div>
 
-              {/* 날짜/체크 → Tab 스킵 */}
               <div className="flex flex-col" data-skip-tab>
                 <L>입주가능일</L>
                 <div className="flex items-center gap-2">
@@ -918,7 +971,6 @@ export default function EditListingPage() {
               </div>
             </div>
 
-            {/* 체크 3종 Tab 스킵 */}
             <div className="flex flex-wrap items-center gap-6" data-skip-tab>
               <label className="inline-flex items-center gap-2 select-none">
                 <input

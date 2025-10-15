@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 /** 렌더 깜빡임 방지 */
 function HydrateGate({ children }) {
@@ -10,26 +10,49 @@ function HydrateGate({ children }) {
 }
 
 export default function SignInPage() {
+  const sp = useSearchParams();
+  const nextUrl = sp.get("next") || "/dashboard";
+
   const [idOrEmail, setIdOrEmail] = useState("");
   const [password, setPassword]   = useState("");
   const [err, setErr] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
 
   async function onSubmit(e) {
     e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
     setErr("");
+
     try {
       const r = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idOrEmail, password })
       });
+
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j?.ok) { setErr(j?.message || "로그인 실패"); return; }
+
+      if (!r.ok || !j?.ok) {
+        setErr(j?.message || "로그인 실패");
+        setSubmitting(false);
+        return;
+      }
+
+      // 세션 로컬 저장(기존 동작 유지)
       try { localStorage.setItem("daesu:session", JSON.stringify(j.session)); } catch {}
-      router.replace("/dashboard");
+
+      // ✅ 미들웨어 통과용 쿠키 심기 (간편 버전; 추후 서버 Set-Cookie 로 강화 가능)
+      const maxAge = 60 * 60 * 24 * 30; // 30일
+      document.cookie = `DAESU_UID=${encodeURIComponent(j.session.id)}; path=/; max-age=${maxAge}; samesite=lax`;
+      document.cookie = `DAESU_APPROVED=1; path=/; max-age=${maxAge}; samesite=lax`;
+
+      // next 파라미터가 있으면 그리로, 없으면 /dashboard
+      router.replace(nextUrl);
     } catch {
       setErr("로그인 오류");
+      setSubmitting(false);
     }
   }
 
@@ -59,7 +82,9 @@ export default function SignInPage() {
                  autoComplete="current-password" />
 
           {err && <div style={{ color: "#b91c1c", fontSize: 13, marginTop: 6 }}>{err}</div>}
-          <button className="btn" type="submit">로그인</button>
+          <button className="btn" type="submit" disabled={submitting}>
+            {submitting ? "로그인 중…" : "로그인"}
+          </button>
 
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, fontSize: 13 }}>
             <a href="/sign-up">회원가입</a>
@@ -74,6 +99,7 @@ export default function SignInPage() {
           .lb{display:block;margin:8px 0 6px;font-size:13.5px;color:#374151}
           .ip{width:100%;border:1px solid #e5e7eb;border-radius:10px;padding:10px}
           .btn{width:100%;margin-top:12px;border:1px solid #111;background:#111;color:#fff;border-radius:10px;padding:10px;font-weight:800;cursor:pointer}
+          .btn[disabled]{opacity:.6;cursor:not-allowed}
           .btn:hover{filter:brightness(1.06)}
         `}</style>
       </main>

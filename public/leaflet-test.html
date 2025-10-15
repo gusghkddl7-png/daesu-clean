@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>매물지도 · VWorld Base + 지적경계 + 대장요약</title>
+  <link rel="stylesheet" href="/vendor/leaflet/1.9.4/leaflet.css" />
+  <style>
+    html, body { height:100%; margin:0; }
+    #map { height:100%; }
+    .popup{min-width:260px;font:13px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans KR",sans-serif;}
+    .road{font-weight:700;}
+    .parcel{color:#6b7280;font-size:12px;margin-top:2px;}
+    .btn {
+      display:inline-block;margin-top:6px;padding:6px 10px;border:1px solid #222;border-radius:6px;
+      font-size:12px;background:#fff;cursor:pointer;user-select:none;
+    }
+    .btn:active { transform: translateY(1px); }
+    .badge{position:fixed;left:8px;bottom:8px;background:#111;color:#fff;font:12px/1.4 system-ui;padding:6px 8px;border-radius:6px;z-index:9999;}
+    /* ===== 숫자 핀 스타일 ===== */
+    .num-pin {
+      background:#111;color:#fff;border:2px solid #fff;border-radius:9999px;
+      width:22px;height:22px;display:flex;align-items:center;justify-content:center;
+      font:12px/1.0 system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans KR",sans-serif;
+      box-shadow:0 1px 6px rgba(0,0,0,.35);
+    }
+    .num-pin.done { background:#475569; } /* 거래완료 */
+    .num-pin.vacant { background:#16a34a; } /* 공실 */
+    .legend {
+      position:fixed; right:8px; bottom:8px; z-index:9999;
+      background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:6px 8px; font:12px system-ui;
+      box-shadow:0 2px 8px rgba(0,0,0,.06)
+    }
+    .legend .dot{display:inline-flex; width:14px; height:14px; border-radius:9999px; margin-right:6px; border:2px solid #fff}
+    .legend-row{display:flex; align-items:center; margin:4px 0}
+  </style>
+  <link rel="icon" href="data:,">
+</head>
+<body>
+  <div id="map"></div>
+  <div class="badge">VWorld Base · 클릭 → 주소/경계/대장 · 파란선=필지 · ●=매물</div>
+
+  <div class="legend">
+    <div class="legend-row"><span class="dot" style="background:#111"></span> 일반</div>
+    <div class="legend-row"><span class="dot" style="background:#16a34a"></span> 공실</div>
+    <div class="legend-row"><span class="dot" style="background:#475569"></span> 거래완료</div>
+  </div>
+
+  <script src="/vendor/leaflet/1.9.4/leaflet.js"></script>
+  <script>
+    // === 지도: VWorld Base ===
+    const map = L.map('map', { center: [37.5386,127.1247], zoom: 17, zoomControl: true });
+    L.tileLayer('https://xdworld.vworld.kr/2d/Base/service/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '&copy; VWorld'
+    }).addTo(map);
+
+    // 팝업은 항상 1개
+    const popup = L.popup({ closeButton: true, autoClose: true, closeOnClick: true });
+
+    // 지적 폴리곤 레이어 (클릭할 때마다 갱신)
+    let parcelLayer = null;
+
+    // === API helpers ===
+    async function getAddrs(lat, lng){
+      const r = await fetch(`/api/geocode/rev?lat=${lat}&lng=${lng}`, { cache:'no-store' });
+      const j = await r.json().catch(()=>null);
+      return r.ok && j ? { ok:!!j.ok, road:j.road||'', parcel:j.parcel||'', error:j.error||'' } : { ok:false, road:'', parcel:'', error:'서버 오류' };
+    }
+    async function getParcelGeom(lat, lng){
+      const r = await fetch(`/api/parcel/geom?lat=${lat}&lng=${lng}`, { cache:'no-store' });
+      const j = await r.json().catch(()=>null);
+      return r.ok && j?.ok ? j.feature : null;
+    }
+    async function getRegistry(lat, lng, address){
+      const r = await fetch(`/api/registry/summary?lat=${lat}&lng=${lng}&address=${encodeURIComponent(address||'')}`, { cache:'no-store' });
+      return await r.json().catch(()=>null);
+    }
+
+    function drawParcel(feature){
+      if (parcelLayer) { parcelLayer.remove(); parcelLayer = null; }
+      if (!feature) return;
+      parcelLayer = L.geoJSON(feature, {
+        style: { color:'#2563eb', weight:3, opacity:0.9, fillColor:'#3b82f6', fillOpacity:0.12 }
+      }).addTo(map);
+      try {
+        const b = L.geoJSON(feature).getBounds();
+        if (b && b.isValid()) map.fitBounds(b.pad(0.15));
+      } catch {}
+    }
+
+    // === (A) 지도를 클릭하면 주소/필지/대장 요약 ===
+    map.on('click', async (e)=>{
+      const { lat, lng } = e.latlng;
+      popup.setLatLng(e.latlng).setContent('<div class="popup">주소 조회중…</div>').openOn(map);
+      const [addr, geom] = await Promise.all([ getAddrs(lat, lng), getParcelGeom(lat, lng) ]);
+      drawParcel(geom);
+
+      if (!addr.ok) {
+        popup.setContent(`<div class="popup">
+          <div>좌표: ${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
+          <div style="color:#b00020">주소 확인 실패: ${addr.error||'오류'}</div>
+        </div>`);
+        return;
+      }
+
+      const road = addr.road ? `<div class="road">${addr.road}</div>` : '';
+      const parcel = addr.parcel ? `<div class="parcel">${addr.parcel}</div>` : '';
+
+      popup.setContent(`<div class="popup">
+        ${road || parcel || '-'}${parcel}
+        <div class="btn" id="btn-reg">건물·토지 대장 요약 보기</div>
+      </div>`);
+
+      const btn = document.getElementById('btn-reg');
+      if (btn) {
+        btn.addEventListener('click', async ()=>{
+          btn.textContent = '조회중…'; btn.style.pointerEvents='none';
+          const summary = await getRegistry(lat, lng, addr.road || addr.parcel || '');
+          btn.style.pointerEvents='auto';
+          if (!summary || !summary.ok) {
+            popup.setContent(`<div class="popup">
+              ${road || parcel || '-'}${parcel}
+              <div style="margin-top:6px;color:#b00020">대장 조회 실패</div>
+            </div>`);
+            return;
+          }
+          const b = summary.building;
+          const l = summary.land;
+          const bRows = b?.ok ? `
+            <div><strong>건축물대장</strong></div>
+            <div>주용도: ${b.summary?.mainUse || '-'}</div>
+            <div>구조: ${b.summary?.structure || '-'}</div>
+            <div>층수: ${b.summary?.totalFloor || '-'}</div>
+            <div>연면적: ${b.summary?.area || '-'}</div>
+            <div>사용승인: ${b.summary?.approveDate || '-'}</div>
+          ` : `<div><strong>건축물대장</strong> · ${b?.message || b?.error || '정보 없음'}</div>`;
+
+          const lRows = l?.ok ? `
+            <div style="margin-top:6px"><strong>토지대장</strong></div>
+            <div>지목: ${l.summary?.landUse || '-'}</div>
+            <div>면적: ${l.summary?.area || '-'}</div>
+            <div>용도지역: ${l.summary?.zonings || '-'}</div>
+            <div>비고: ${l.summary?.etc || '-'}</div>
+          ` : `<div style="margin-top:6px"><strong>토지대장</strong> · ${l?.message || l?.error || '정보 없음'}</div>`;
+
+          popup.setContent(`<div class="popup">
+            ${road || parcel || '-'}${parcel}
+            ${bRows}${lRows}
+          </div>`);
+        });
+      }
+    });
+
+    // === (B) 매물 핀: /api/listings 에서 lat/lng 있는 항목만 숫자 뱃지로 표시 ===
+    const pinLayer = L.layerGroup().addTo(map);
+
+    function fmt(n){ return typeof n==='number' ? n.toLocaleString('ko-KR') : '-'; }
+    function toPyeong(m2){ return typeof m2==='number' ? (m2/3.3058).toFixed(1) : '-'; }
+
+    async function loadListingsPins(){
+      pinLayer.clearLayers();
+      let list = [];
+      try {
+        const r = await fetch('/api/listings', { cache:'no-store' });
+        list = (await r.json()) || [];
+      } catch { list = []; }
+
+      // lat/lng 있는 것만
+      const pts = list.filter(x => typeof x.lat==='number' && typeof x.lng==='number');
+
+      pts.forEach((x, i) => {
+        const n = (i+1); // 지도에서 보일 번호
+        // 상태별 색상
+        const cls = x.completed ? 'done' : (x.vacant ? 'vacant' : '');
+        const div = L.divIcon({
+          className: `num-pin ${cls}`,
+          html: String(n),
+          iconSize: [22,22],
+          iconAnchor: [11,11]
+        });
+        const m = L.marker([x.lat, x.lng], { icon: div }).addTo(pinLayer);
+
+        // 팝업 내용(매물 요약)
+        const deal = x.dealType || '-';
+        const price = `${fmt(x.deposit)} / ${fmt(x.rent)} / ${fmt(x.mgmt)}`;
+        const area = typeof x.areaM2==='number' ? `${x.areaM2.toFixed(1)}㎡ (≈${toPyeong(x.areaM2)}평)` : '-';
+        const addr2 = x.addressSub ? `<div class="text-[12px] text-gray-600">${x.addressSub}</div>` : '';
+        const code = x.code ? ` · 코드 ${x.code}` : '';
+        const agent = x.agent ? ` · 담당 ${x.agent}` : '';
+        const btn = (x._id) ? `<a href="/listings/${x._id}/edit" class="btn" style="text-decoration:none">상세보기</a>` : '';
+
+        m.on('click', () => {
+          popup
+            .setLatLng([x.lat, x.lng])
+            .setContent(`
+              <div class="popup">
+                <div class="road">${x.address || '(주소없음)'}</div>
+                ${addr2}
+                <div style="margin-top:4px">${deal}${code}${agent}</div>
+                <div>임대료(보/월/관): ${price}</div>
+                <div>전용면적: ${area}</div>
+                <div>방/욕: ${(x.rooms ?? 0)} / ${(x.baths ?? 0)} · 엘:${x.elevator ?? '-'} · 주차:${x.parking ?? '-'}</div>
+                ${btn}
+              </div>
+            `)
+            .openOn(map);
+        });
+      });
+
+      // 핀이 하나 이상이면 뷰 조정
+      if (pts.length) {
+        const bounds = L.latLngBounds(pts.map(p => [p.lat, p.lng]));
+        map.fitBounds(bounds.pad(0.2));
+      }
+    }
+
+    loadListingsPins();
+  </script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>TEST: ncpClientId</title>
+<style>html,body,#map{height:100%;margin:0} .badge{position:fixed;left:8px;top:8px;background:#111;color:#fff;font:12px/1.4 system-ui;padding:6px 8px;border-radius:6px}</style>
+<script>
+  window.navermap_authFailure = function() {
+    alert("SDK 인증 실패: ncpClientId=" + "zu7q74yyga");
+  };
+</script>
+<script src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=zu7q74yyga&submodules=geocoder&ts=1760383463"></script>
+</head>
+<body>
+<div id="map"></div>
+<div class="badge">ncpClientId = <br/>URI = /naver-test-client.html</div>
+<script>
+  try {
+    const map = new naver.maps.Map("map", {
+      center: new naver.maps.LatLng(37.545,127.142), zoom: 13
+    });
+    new naver.maps.Marker({ position: map.getCenter(), map });
+  } catch(e) {
+    console.error(e);
+    alert("지도 생성 실패(ncpClientId): " + e.message);
+  }
+</script>
+</body>
+</html>

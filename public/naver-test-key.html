@@ -1,0 +1,31 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>TEST: ncpKeyId (실패가 정상)</title>
+<style>html,body,#map{height:100%;margin:0} .badge{position:fixed;left:8px;top:8px;background:#111;color:#fff;font:12px/1.4 system-ui;padding:6px 8px;border-radius:6px}</style>
+<script>
+  window.navermap_authFailure = function() {
+    alert("SDK 인증 실패: ncpKeyId=" + "  (JS SDK는 ncpKeyId 미지원)");
+  };
+</script>
+<!-- 고의로 ncpKeyId를 붙여봄: 정상적으로는 인증 불가해야 함 -->
+<script src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=&ts=1760383463"></script>
+</head>
+<body>
+<div id="map"></div>
+<div class="badge">ncpKeyId = <br/>URI = /naver-test-key.html</div>
+<script>
+  try {
+    const map = new naver.maps.Map("map", {
+      center: new naver.maps.LatLng(37.545,127.142), zoom: 13
+    });
+    new naver.maps.Marker({ position: map.getCenter(), map });
+  } catch(e) {
+    console.error(e);
+    alert("지도 생성 실패(ncpKeyId): " + e.message + "  (JS SDK는 ncpClientId만 지원)");
+  }
+</script>
+</body>
+</html>

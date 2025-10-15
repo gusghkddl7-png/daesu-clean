@@ -50,7 +50,7 @@ const COLOR_CHOICES = [
 
 /** ===== 폼 타입 ===== */
 type Form = {
-  agent: string;                  // ★ 담당자(3글자 승인명만)
+  agent: string;
   dealType: Deal | "";
   buildingType: BtCat | "";
 
@@ -313,8 +313,7 @@ export default function NewListingPage() {
     (async () => {
       try {
         const res = await fetch("/api/staff?approved=1", { cache: "no-store" });
-        const list = (await res.json()) as string[]; // ["김부장","김실장",...]
-        // 3글자 이름만 채택
+        const list = (await res.json()) as string[];
         const only3 = (Array.isArray(list) ? list : []).filter(
           (s) => typeof s === "string" && s.trim().length === 3
         );
@@ -386,7 +385,7 @@ export default function NewListingPage() {
 
   const hasError = Object.keys(errors).length > 0;
 
-  // 다음 코드/최근 코드
+  // 다음 코드/최근 코드 (자동)
   const { nextCode, recentCode } = useMemo(() => {
     const prefix = codePrefixOf(f.dealType, f.buildingType);
     if (!prefix) return { nextCode: "", recentCode: "" };
@@ -404,22 +403,41 @@ export default function NewListingPage() {
     return { nextCode: prefix + pad4(max + 1), recentCode: max ? prefix + pad4(max) : "" };
   }, [f.dealType, f.buildingType, allItems]);
 
+  /** ★ 코드 수동편집 상태 */
+  const [codeEdit, setCodeEdit] = useState(false);
+  const [codeInput, setCodeInput] = useState("");
+  const [manualCode, setManualCode] = useState<string | null>(null); // null 이면 자동
+
+  // 유형 바뀔 때는 수동 고정 해제(필요 없으면 이 useEffect 삭제)
+  useEffect(() => {
+    setCodeEdit(false);
+    setCodeInput("");
+    setManualCode(null);
+  }, [f.dealType, f.buildingType]);
+
+  const effectiveCode = (manualCode ?? nextCode) || "";
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // 승인 목록 자체가 없을 때 저장 차단(UX 가드)
     if (!agentsReady) {
       alert("설정에서 담당자를 승인해 주세요. (담당자 목록이 비어 있음)");
       return;
     }
     if (hasError) return alert("필수 항목을 확인해주세요.");
-    if (!nextCode) return alert("거래유형/건물유형을 먼저 선택하세요.");
+
+    const finalCode = (effectiveCode || "").trim().toUpperCase();
+    if (!/^[A-Z]+-\d{4}$/.test(finalCode)) {
+      alert("코드 형식은 예) BO-0123");
+      return;
+    }
+    if (!finalCode) return alert("거래유형/건물유형을 먼저 선택하세요.");
 
     setSaving(true);
     try {
       const body = {
         createdAt: new Date().toISOString(),
-        agent: f.agent,                         // ★ 담당자(승인명)
-        code: nextCode,
+        agent: f.agent,
+        code: finalCode,                         // ★ 수동/자동 모두 여기서 확정
         dealType: f.dealType as Deal,
         buildingType: f.buildingType as string,
 
@@ -502,14 +520,58 @@ export default function NewListingPage() {
         <Section
           title="기본 / 거래"
           extra={
-            <div tabIndex={-1} className="flex items-center gap-3">
+            <div tabIndex={-1} className="flex items-center gap-2">
               <CodeNumberBox
                 dealType={f.dealType as any}
                 buildingType={f.buildingType as any}
                 variant="compact"
-                overrideCode={nextCode || ""}
+                overrideCode={effectiveCode}
                 recentCode={recentCode || ""}
               />
+
+              {!codeEdit ? (
+                <button
+                  type="button"
+                  className="h-8 px-2 border rounded text-xs"
+                  onClick={() => {
+                    setCodeInput(effectiveCode || nextCode || "");
+                    setCodeEdit(true);
+                  }}
+                >
+                  코드 수정
+                </button>
+              ) : (
+                <>
+                  <input
+                    value={codeInput}
+                    onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+                    placeholder="예: BO-0123"
+                    className="h-8 px-2 border rounded text-sm w-[120px]"
+                  />
+                  <button
+                    type="button"
+                    className="h-8 px-2 border rounded text-xs bg-black text-white"
+                    onClick={() => {
+                      const v = codeInput.trim().toUpperCase();
+                      if (!/^[A-Z]+-\d{4}$/.test(v)) {
+                        alert("형식: 영문-4자리 (예: BO-0123)");
+                        return;
+                      }
+                      setManualCode(v);    // ★ 수동 코드 고정
+                      setCodeEdit(false);
+                    }}
+                  >
+                    적용
+                  </button>
+                  <button
+                    type="button"
+                    className="h-8 px-2 border rounded text-xs"
+                    onClick={() => setCodeEdit(false)}
+                  >
+                    취소
+                  </button>
+                </>
+              )}
             </div>
           }
         >

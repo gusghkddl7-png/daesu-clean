@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { withBase, getClientBaseUrl } from "../../lib/base";
 
 /** =========================
  *  타입
@@ -157,8 +158,7 @@ export default function Page() {
         setLoading(false);
         return;
       }
-      const base = process.env.NEXT_PUBLIC_BASE_URL || "";
-      const url = `${base}/api/juso/search`.replace(/\/{2,}/g, "/").replace(":/", "://");
+      const url = withBase(`/api/juso/search`, getClientBaseUrl());
       const r = await fetch(`${url}?q=${encodeURIComponent(q)}`, { cache: "no-store" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
@@ -180,8 +180,7 @@ export default function Page() {
     try {
       const sampleAddr = items[0]?.roadAddr || items[0]?.jibunAddr || (tab === "통합" ? keyword.trim() : buildQuery());
       if (!sampleAddr) return alert("테스트할 주소가 없습니다. 먼저 검색해 주세요.");
-      const base = process.env.NEXT_PUBLIC_BASE_URL || "";
-      const url = `${base}/api/seoul/building`.replace(/\/{2,}/g, "/").replace(":/", "://");
+      const url = withBase(`/api/seoul/building`, getClientBaseUrl());
       const r = await fetch(`${url}?addr=${encodeURIComponent(sampleAddr)}`, { cache: "no-store" });
       const j = await r.json();
       if (j?.ok) alert("연동 OK (건축물대장 일반 응답 성공)");
