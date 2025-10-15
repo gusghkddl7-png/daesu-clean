@@ -404,7 +404,7 @@ export default function ListingsMapPage() {
 
     let made = 0;
 
-    for (const [k, v] of grouped.entries()) {
+    for (const [k, v] of Array.from(grouped.entries())) {
       const withCoord = v.items.find((it) => it.lat != null && it.lng != null);
       let lat = withCoord?.lat ?? null;
       let lng = withCoord?.lng ?? null;
